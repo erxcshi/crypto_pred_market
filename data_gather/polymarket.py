@@ -1,9 +1,10 @@
 import time
 import requests
-import supabase
 import json
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
+
+from crypto_predictions.config import create_supabase_client
 
 
 GAMMA_BASE = 'https://gamma-api.polymarket.com'
@@ -11,18 +12,11 @@ CLOB_BASE = 'https://clob.polymarket.com'
 
 
 # SUPABASE 
-SUPABASE_URL = 'https://qiykynyfqpgxasoidcpz.supabase.co'
-SUPABASE_KEY = 'sb_publishable_4UdbjMZgIQ7XEqJ4I8kIMA_z1BJ4ApR'
-
 TIME_HORIZON = 15                               #5 or 15
 time_horizon_seconds = TIME_HORIZON * 60
 POLL_SECONDS = 2
 INSERT_RETRIES = 3
 BATCH_SIZE = 100
-
-
-def make_supabase_client():
-    return supabase.create_client(supabase_url=SUPABASE_URL, supabase_key=SUPABASE_KEY)
 
 
 def get_window_starting_price(session, coin, interval_start_unix):
@@ -173,7 +167,7 @@ def supabase_submit(supabase_client, rows_data):
             return True
         except Exception as e:
             print(f'polymarket_markets insert failed (attempt {attempt}/{INSERT_RETRIES}): {e}')
-            supabase_client = make_supabase_client()
+            supabase_client = create_supabase_client()
             time.sleep(attempt)
 
     print(f'polymarket_markets insert gave up after {INSERT_RETRIES} attempts')
@@ -207,7 +201,7 @@ def collect_polymarket_row(coin, curr_time, interval_start_unix):
 
 def scrape_polymarket(coins):
     rows_data = []
-    supabase_client = make_supabase_client()
+    supabase_client = create_supabase_client()
 
     print(f'starting scrape for {", ".join(coins)}')
 

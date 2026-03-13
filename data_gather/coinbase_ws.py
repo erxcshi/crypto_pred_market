@@ -3,24 +3,16 @@ import json
 import time
 from datetime import datetime, timezone
 
-import supabase
 import websockets
 
-
-SUPABASE_URL = 'https://qiykynyfqpgxasoidcpz.supabase.co'
-SUPABASE_KEY = 'sb_publishable_4UdbjMZgIQ7XEqJ4I8kIMA_z1BJ4ApR'
+from crypto_predictions.config import create_supabase_client
 
 WS_URL = 'wss://ws-feed.exchange.coinbase.com'
 PRODUCT_IDS = ['BTC-USD', 'ETH-USD', 'XRP-USD', 'SOL-USD']
 BATCH_SIZE = 100
 INSERT_RETRIES = 3
 
-
-def make_supabase_client():
-    return supabase.create_client(supabase_url=SUPABASE_URL, supabase_key=SUPABASE_KEY)
-
-
-supabase_client = make_supabase_client()
+supabase_client = create_supabase_client()
 
 
 def build_subscribe_message():
@@ -56,7 +48,7 @@ def supabase_submit(rows_data):
             return True
         except Exception as e:
             print(f'coinbase_trades insert failed (attempt {attempt}/{INSERT_RETRIES}): {e}')
-            supabase_client = make_supabase_client()
+            supabase_client = create_supabase_client()
             time.sleep(attempt)
 
     print(f'coinbase_trades insert gave up after {INSERT_RETRIES} attempts')

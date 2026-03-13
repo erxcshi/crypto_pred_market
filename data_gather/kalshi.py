@@ -1,12 +1,11 @@
 import requests
 import time
 from datetime import datetime, timezone
-import supabase
 from concurrent.futures import ThreadPoolExecutor
 
+from crypto_predictions.config import create_supabase_client
+
 # SUPABASE 
-SUPABASE_URL = 'https://qiykynyfqpgxasoidcpz.supabase.co'
-SUPABASE_KEY = 'sb_publishable_4UdbjMZgIQ7XEqJ4I8kIMA_z1BJ4ApR'
 POLL_SECONDS = 2
 INSERT_RETRIES = 3
 BATCH_SIZE = 100
@@ -26,9 +25,6 @@ MARKET_FIELDS = [
     'volume',
     'volume_24h_fp',
 ]
-
-def make_supabase_client():
-    return supabase.create_client(supabase_url=SUPABASE_URL, supabase_key=SUPABASE_KEY)
 
 
 def build_market_row(coin, curr_time, market):
@@ -62,7 +58,7 @@ def collect_kalshi_rows(coin, curr_time):
 
 def scrape_kalshi(coins):
     rows_data = []
-    supabase_client = make_supabase_client()
+    supabase_client = create_supabase_client()
 
     print(f'starting scrape for {", ".join(coins)}')
 
@@ -105,7 +101,7 @@ def supabase_submit(supabase_client, rows_data):
             return True
         except Exception as e:
             print(f'kalshi_markets insert failed (attempt {attempt}/{INSERT_RETRIES}): {e}')
-            supabase_client = make_supabase_client()
+            supabase_client = create_supabase_client()
             time.sleep(attempt)
 
     print(f'kalshi_markets insert gave up after {INSERT_RETRIES} attempts')

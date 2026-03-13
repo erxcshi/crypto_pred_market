@@ -2,11 +2,9 @@ import time
 from datetime import datetime, timezone
 
 import requests
-import supabase
 
+from crypto_predictions.config import create_supabase_client
 
-SUPABASE_URL = 'https://qiykynyfqpgxasoidcpz.supabase.co'
-SUPABASE_KEY = 'sb_publishable_4UdbjMZgIQ7XEqJ4I8kIMA_z1BJ4ApR'
 
 DERIBIT_BASE = 'https://www.deribit.com/api/v2'
 CURRENCIES = ['BTC', 'ETH']
@@ -16,13 +14,7 @@ POLL_SECONDS = 5
 INSERT_RETRIES = 3
 
 session = requests.Session()
-
-
-def make_supabase_client():
-    return supabase.create_client(supabase_url=SUPABASE_URL, supabase_key=SUPABASE_KEY)
-
-
-supabase_client = make_supabase_client()
+supabase_client = create_supabase_client()
 
 
 def deribit_get(method, params):
@@ -87,7 +79,7 @@ def supabase_insert_with_retry(table_name, rows_data):
             return True
         except Exception as e:
             print(f'{table_name} insert failed (attempt {attempt}/{INSERT_RETRIES}): {e}')
-            supabase_client = make_supabase_client()
+            supabase_client = create_supabase_client()
             time.sleep(attempt)
 
     print(f'{table_name} insert gave up after {INSERT_RETRIES} attempts')
