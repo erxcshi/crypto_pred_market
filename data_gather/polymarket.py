@@ -1,8 +1,9 @@
-import time
-import requests
 import json
+import time
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
+
+import requests
 
 from crypto_predictions.config import create_supabase_client
 

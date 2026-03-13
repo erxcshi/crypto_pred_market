@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from supabase import Client, create_client
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 
 def create_supabase_client() -> Client:
