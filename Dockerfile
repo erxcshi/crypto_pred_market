@@ -2,9 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY . .
+COPY . /app/crypto_pred_market
 
-CMD ["python", "data_gather/run_all.py"]
+WORKDIR /app
+
+CMD ["python", "-m", "crypto_pred_market.data_gather.run_all"]
