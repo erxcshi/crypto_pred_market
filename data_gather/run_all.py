@@ -2,7 +2,7 @@ import asyncio
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from crypto_pred_market.config import create_data_sink
 from crypto_pred_market.data_gather.coinbase_ws import stream_coinbase_trades
