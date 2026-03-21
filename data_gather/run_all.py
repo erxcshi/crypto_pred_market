@@ -2,53 +2,25 @@ import asyncio
 import os
 import sys
 
-PROJECT_PARENT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MODULES = [
-    'crypto_predictions.data_gather.coinbase_ws',
-    'crypto_predictions.data_gather.deribit_vol',
-    'crypto_predictions.data_gather.kalshi',
-    'crypto_predictions.data_gather.polymarket',
-]
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-
-async def stream_output(prefix, stream):
-    while True:
-        line = await stream.readline()
-        if not line:
-            break
-        print(f'[{prefix}] {line.decode().rstrip()}')
-
-
-async def run_script(module_name):
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        '-m',
-        module_name,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=PROJECT_PARENT,
-    )
-
-    stdout_task = asyncio.create_task(stream_output(module_name, process.stdout))
-    stderr_task = asyncio.create_task(stream_output(f'{module_name}:stderr', process.stderr))
-
-    try:
-        returncode = await process.wait()
-        await stdout_task
-        await stderr_task
-
-        if returncode != 0:
-            raise RuntimeError(f'{module_name} exited with code {returncode}')
-    except asyncio.CancelledError:
-        process.terminate()
-        await process.wait()
-        await stdout_task
-        await stderr_task
-        raise
+from crypto_pred_market.config import create_data_sink
+from crypto_pred_market.data_gather.coinbase_ws import stream_coinbase_trades
+from crypto_pred_market.data_gather.deribit_vol import scrape_deribit_vol
+from crypto_pred_market.data_gather.kalshi import scrape_kalshi
+from crypto_pred_market.data_gather.polymarket import scrape_polymarket
 
 
 async def main():
-    tasks = [asyncio.create_task(run_script(module_name)) for module_name in MODULES]
+    coins = ['BTC', 'ETH', 'XRP', 'SOL']
+    production_data_sink = create_data_sink('actual')
+
+    tasks = [
+        asyncio.create_task(stream_coinbase_trades(data_sink=production_data_sink)),
+        asyncio.create_task(scrape_deribit_vol(data_sink=production_data_sink)),
+        asyncio.create_task(scrape_kalshi(coins, data_sink=production_data_sink)),
+        asyncio.create_task(scrape_polymarket(coins, data_sink=production_data_sink)),
+    ]
 
     try:
         await asyncio.gather(*tasks)

@@ -5,14 +5,13 @@ from datetime import datetime, timezone
 
 import websockets
 
-from crypto_predictions.config import create_supabase_client
+from crypto_pred_market.config import create_data_sink
 
 WS_URL = 'wss://ws-feed.exchange.coinbase.com'
 PRODUCT_IDS = ['BTC-USD', 'ETH-USD', 'XRP-USD', 'SOL-USD']
 BATCH_SIZE = 100
+FLUSH_INTERVAL_SECONDS = 5
 INSERT_RETRIES = 3
-
-supabase_client = create_supabase_client()
 
 
 def build_subscribe_message():
@@ -39,24 +38,10 @@ def build_trade_row(message):
     }
 
 
-def supabase_submit(rows_data):
-    global supabase_client
-
-    for attempt in range(1, INSERT_RETRIES + 1):
-        try:
-            supabase_client.table('coinbase_trades').insert(rows_data).execute()
-            return True
-        except Exception as e:
-            print(f'coinbase_trades insert failed (attempt {attempt}/{INSERT_RETRIES}): {e}')
-            supabase_client = create_supabase_client()
-            time.sleep(attempt)
-
-    print(f'coinbase_trades insert gave up after {INSERT_RETRIES} attempts')
-    return False
-
-
-async def stream_coinbase_trades():
+async def stream_coinbase_trades(data_sink=None):
     rows_data = []
+    last_flush = time.monotonic()
+    data_sink = data_sink or create_data_sink()
 
     while True:
         try:
@@ -74,10 +59,23 @@ async def stream_coinbase_trades():
                     rows_data.append(row_data)
                     print(row_data)
 
-                    if len(rows_data) >= BATCH_SIZE:
-                        if supabase_submit(rows_data):
+                    should_flush = len(rows_data) >= BATCH_SIZE or (
+                        rows_data and time.monotonic() - last_flush >= FLUSH_INTERVAL_SECONDS
+                    )
+                    if should_flush:
+                        if await data_sink.submit_rows('coinbase_trades', rows_data, csv_filename='coinbase_test.csv'):
                             rows_data.clear()
+                            last_flush = time.monotonic()
+        except asyncio.CancelledError:
+            if rows_data:
+                await data_sink.submit_rows('coinbase_trades', rows_data, csv_filename='coinbase_test.csv')
+                rows_data.clear()
+            raise
         except Exception as e:
+            if rows_data:
+                await data_sink.submit_rows('coinbase_trades', rows_data, csv_filename='coinbase_test.csv')
+                rows_data.clear()
+                last_flush = time.monotonic()
             print(f'coinbase websocket failed: {type(e).__name__}: {e}')
             await asyncio.sleep(3)
 

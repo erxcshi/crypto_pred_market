@@ -1,11 +1,11 @@
 import json
 import time
+import asyncio
 from datetime import datetime, timezone
-from concurrent.futures import ThreadPoolExecutor
 
-import requests
+import aiohttp
 
-from crypto_predictions.config import create_supabase_client
+from crypto_pred_market.config import create_data_sink
 
 
 GAMMA_BASE = 'https://gamma-api.polymarket.com'
@@ -15,18 +15,18 @@ CLOB_BASE = 'https://clob.polymarket.com'
 # SUPABASE 
 TIME_HORIZON = 15                               #5 or 15
 time_horizon_seconds = TIME_HORIZON * 60
-POLL_SECONDS = 2
+POLL_SECONDS = 1
 INSERT_RETRIES = 3
 BATCH_SIZE = 100
 
 
-def get_window_starting_price(session, coin, interval_start_unix):
+async def get_window_starting_price(session, coin, interval_start_unix):
 
     # convert to ms because binance works with ms data 
     start_ms = interval_start_unix * 1000                       
     end_ms = start_ms + (time_horizon_seconds * 1000) - 1
 
-    resp = session.get(
+    async with session.get(
         'https://api.binance.us/api/v3/klines',
         params={
             'symbol': f'{coin}USDT',
@@ -35,22 +35,22 @@ def get_window_starting_price(session, coin, interval_start_unix):
             'endTime': end_ms,
             'limit': 1,
         },
-        timeout=10,
-    )
-    resp.raise_for_status()
+        timeout=aiohttp.ClientTimeout(total=5),
+    ) as resp:
+        resp.raise_for_status()
 
-    klines = resp.json()
-    if not klines:
-        raise ValueError(f'no Binance kline found for {coin} at {interval_start_unix}')
+        klines = await resp.json()
+        if not klines:
+            raise ValueError(f'no Binance kline found for {coin} at {interval_start_unix}')
 
-    kline = klines[0]
-    return float(kline[1])
+        kline = klines[0]
+        return float(kline[1])
 
 
-def get_gamma_event(session, slug):
-    resp = session.get(f'{GAMMA_BASE}/events/slug/{slug}', timeout=10)
-    resp.raise_for_status()
-    return resp.json()
+async def get_gamma_event(session, slug):
+    async with session.get(f'{GAMMA_BASE}/events/slug/{slug}', timeout=aiohttp.ClientTimeout(total=5)) as resp:
+        resp.raise_for_status()
+        return await resp.json()
 
 
 def extract_gamma_market(event):
@@ -79,41 +79,46 @@ def extract_gamma_market(event):
     }
 
 
-def get_clob_book(session, token_id):
-    resp = session.get(
+async def get_clob_book(session, token_id):
+    async with session.get(
         f'{CLOB_BASE}/book',
         params={'token_id': token_id},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    return resp.json()
+        timeout=aiohttp.ClientTimeout(total=5),
+    ) as resp:
+        resp.raise_for_status()
+        return await resp.json()
 
 
-def get_clob_price(session, token_id, side):
-    resp = session.get(
+async def get_clob_price(session, token_id, side):
+    async with session.get(
         f'{CLOB_BASE}/price',
         params={'token_id': token_id, 'side': side},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    return resp.json()
+        timeout=aiohttp.ClientTimeout(total=5),
+    ) as resp:
+        resp.raise_for_status()
+        return await resp.json()
 
 
-def get_clob_midpoint(session, token_id):
-    resp = session.get(
+async def get_clob_midpoint(session, token_id):
+    async with session.get(
         f'{CLOB_BASE}/midpoint',
         params={'token_id': token_id},
-        timeout=10,
+        timeout=aiohttp.ClientTimeout(total=5),
+    ) as resp:
+        resp.raise_for_status()
+        return await resp.json()
+
+
+async def extract_clob_snapshot(session, token_id):
+    # Make CLOB API calls concurrently
+    book_task = get_clob_book(session, token_id)
+    buy_price_task = get_clob_price(session, token_id, 'BUY')
+    sell_price_task = get_clob_price(session, token_id, 'SELL')
+    midpoint_task = get_clob_midpoint(session, token_id)
+    
+    book, buy_price, sell_price, midpoint = await asyncio.gather(
+        book_task, buy_price_task, sell_price_task, midpoint_task
     )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def extract_clob_snapshot(session, token_id):
-    book = get_clob_book(session, token_id)
-    buy_price = get_clob_price(session, token_id, 'BUY')
-    sell_price = get_clob_price(session, token_id, 'SELL')
-    midpoint = get_clob_midpoint(session, token_id)
 
     return {
         'timestamp': book.get('timestamp'),
@@ -138,53 +143,30 @@ def build_polymarket_row(curr_time, coin, interval_start_unix, strike_price, gam
         'liquidity': gamma_market.get('liquidity'),
         'volume': gamma_market.get('volume'),
         'open_interest': gamma_market.get('open_interest'),
-        'yes_token_id': gamma_market.get('yes_token_id'),
-        'no_token_id': gamma_market.get('no_token_id'),
         'yes_implied_price': gamma_market.get('outcome_prices', [None])[0] if len(gamma_market.get('outcome_prices', [])) > 0 else None,
         'no_implied_price': gamma_market.get('outcome_prices', [None, None])[1] if len(gamma_market.get('outcome_prices', [])) > 1 else None,
-        'yes_book_timestamp': up_clob.get('timestamp'),
-        'yes_best_bid': up_clob.get('best_bid', {}).get('price') if up_clob.get('best_bid') else None,
-        'yes_best_bid_size': up_clob.get('best_bid', {}).get('size') if up_clob.get('best_bid') else None,
-        'yes_best_ask': up_clob.get('best_ask', {}).get('price') if up_clob.get('best_ask') else None,
-        'yes_best_ask_size': up_clob.get('best_ask', {}).get('size') if up_clob.get('best_ask') else None,
         'yes_buy_price': up_clob.get('buy_price'),
         'yes_sell_price': up_clob.get('sell_price'),
-        'yes_midpoint': up_clob.get('midpoint'),
-        'no_book_timestamp': down_clob.get('timestamp'),
-        'no_best_bid': down_clob.get('best_bid', {}).get('price') if down_clob.get('best_bid') else None,
-        'no_best_bid_size': down_clob.get('best_bid', {}).get('size') if down_clob.get('best_bid') else None,
-        'no_best_ask': down_clob.get('best_ask', {}).get('price') if down_clob.get('best_ask') else None,
-        'no_best_ask_size': down_clob.get('best_ask', {}).get('size') if down_clob.get('best_ask') else None,
         'no_buy_price': down_clob.get('buy_price'),
         'no_sell_price': down_clob.get('sell_price'),
-        'no_midpoint': down_clob.get('midpoint'),
     }
 
 
-def supabase_submit(supabase_client, rows_data):
-    for attempt in range(1, INSERT_RETRIES + 1):
-        try:
-            supabase_client.table('polymarket_markets').insert(rows_data).execute()
-            return True
-        except Exception as e:
-            print(f'polymarket_markets insert failed (attempt {attempt}/{INSERT_RETRIES}): {e}')
-            supabase_client = create_supabase_client()
-            time.sleep(attempt)
-
-    print(f'polymarket_markets insert gave up after {INSERT_RETRIES} attempts')
-    return False
-
-
-def collect_polymarket_row(coin, curr_time, interval_start_unix):
-    session = requests.Session()
-
+async def collect_polymarket_row(session, coin, curr_time, interval_start_unix):
     try:
-        strike_price = get_window_starting_price(session, coin, interval_start_unix)
+        # Get Binance price and Gamma event concurrently
+        binance_task = get_window_starting_price(session, coin, interval_start_unix)
         slug = f'{coin.lower()}-updown-{TIME_HORIZON}m-{interval_start_unix}'
-        event = get_gamma_event(session, slug)
+        gamma_task = get_gamma_event(session, slug)
+        
+        strike_price, event = await asyncio.gather(binance_task, gamma_task)
         gamma_market = extract_gamma_market(event)
-        up_clob = extract_clob_snapshot(session, gamma_market['yes_token_id']) if gamma_market['yes_token_id'] else {}
-        down_clob = extract_clob_snapshot(session, gamma_market['no_token_id']) if gamma_market['no_token_id'] else {}
+        
+        # Get CLOB data for YES and NO tokens concurrently
+        up_task = extract_clob_snapshot(session, gamma_market['yes_token_id']) if gamma_market['yes_token_id'] else asyncio.create_task(asyncio.sleep(0, result={}))
+        down_task = extract_clob_snapshot(session, gamma_market['no_token_id']) if gamma_market['no_token_id'] else asyncio.create_task(asyncio.sleep(0, result={}))
+        
+        up_clob, down_clob = await asyncio.gather(up_task, down_task)
 
         return build_polymarket_row(
             curr_time=curr_time,
@@ -200,25 +182,21 @@ def collect_polymarket_row(coin, curr_time, interval_start_unix):
         return None
 
 
-def scrape_polymarket(coins):
+async def scrape_polymarket(coins, data_sink=None):
     rows_data = []
-    supabase_client = create_supabase_client()
+    data_sink = data_sink or create_data_sink()
 
     print(f'starting scrape for {", ".join(coins)}')
 
-    with ThreadPoolExecutor(max_workers=len(coins)) as exec:
+    async with aiohttp.ClientSession() as session:
         while True:
             start = time.time()
             curr_time = datetime.now(timezone.utc).isoformat()
             interval_start_unix = int(time.time() // time_horizon_seconds) * time_horizon_seconds
 
             try:
-                row_batch = list(
-                    exec.map(
-                        lambda coin: collect_polymarket_row(coin, curr_time, interval_start_unix),
-                        coins,
-                    )
-                )
+                tasks = [collect_polymarket_row(session, coin, curr_time, interval_start_unix) for coin in coins]
+                row_batch = await asyncio.gather(*tasks)
                 row_batch = [row for row in row_batch if row is not None]
                 rows_data.extend(row_batch)
 
@@ -227,18 +205,31 @@ def scrape_polymarket(coins):
 
                 while len(rows_data) >= BATCH_SIZE:
                     row_chunk = rows_data[:BATCH_SIZE]
-                    if not supabase_submit(supabase_client, row_chunk):
+                    if not await data_sink.submit_rows(
+                        'polymarket_markets',
+                        row_chunk,
+                        csv_filename='polymarket_test.csv',
+                    ):
                         break
 
                     del rows_data[:BATCH_SIZE]
+
+                # Submit remaining rows at end of cycle
+                if rows_data:
+                    await data_sink.submit_rows(
+                        'polymarket_markets',
+                        rows_data,
+                        csv_filename='polymarket_test.csv',
+                    )
+                    rows_data.clear()
             except Exception as e:
                 print(f'polymarket cycle failed: {type(e).__name__}: {e}')
 
             elapsed = time.time() - start
-            time.sleep(max(0, POLL_SECONDS - elapsed))
+            await asyncio.sleep(max(0, POLL_SECONDS - elapsed))
 
 
 
 if __name__ == '__main__':
     coins = ['BTC', 'ETH', 'XRP', 'SOL']
-    scrape_polymarket(coins)
+    asyncio.run(scrape_polymarket(coins))

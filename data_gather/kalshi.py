@@ -1,9 +1,10 @@
-import requests
+import asyncio
 import time
 from datetime import datetime, timezone
-from concurrent.futures import ThreadPoolExecutor
 
-from crypto_predictions.config import create_supabase_client
+import aiohttp
+
+from crypto_pred_market.config import create_data_sink
 
 # SUPABASE 
 POLL_SECONDS = 2
@@ -39,41 +40,36 @@ def build_market_row(coin, curr_time, market):
     return row_data
 
 
-def collect_kalshi_rows(coin, curr_time):
-    session = requests.Session()
+async def collect_kalshi_rows(session, coin, curr_time):
     markets_url = f"https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KX{coin}15M&status=open"
     try:
-        markets_response = session.get(markets_url, timeout=15)
-        markets_response.raise_for_status()
-        markets_data = markets_response.json()
+        async with session.get(markets_url, timeout=aiohttp.ClientTimeout(total=15)) as markets_response:
+            markets_response.raise_for_status()
+            markets_data = await markets_response.json()
 
-        return [
-            build_market_row(coin, curr_time, market)
-            for market in markets_data.get('markets', [])
-        ]
+            return [
+                build_market_row(coin, curr_time, market)
+                for market in markets_data.get('markets', [])
+            ]
     except Exception as e:
         print(f'failed to collect kalshi rows for {coin}: {type(e).__name__}: {e}')
         return []
 
 
-def scrape_kalshi(coins):
+async def scrape_kalshi(coins, data_sink=None):
     rows_data = []
-    supabase_client = create_supabase_client()
+    data_sink = data_sink or create_data_sink()
 
     print(f'starting scrape for {", ".join(coins)}')
 
-    with ThreadPoolExecutor(max_workers=len(coins)) as exec:
+    async with aiohttp.ClientSession() as session:
         while True:
             start = time.time()
             curr_time = datetime.now(timezone.utc).isoformat()
 
             try:
-                row_batches = list(
-                    exec.map(
-                        lambda coin: collect_kalshi_rows(coin, curr_time),
-                        coins,
-                    )
-                )
+                tasks = [collect_kalshi_rows(session, coin, curr_time) for coin in coins]
+                row_batches = await asyncio.gather(*tasks)
 
                 for coin, row_batch in zip(coins, row_batches):
                     rows_data.extend(row_batch)
@@ -82,33 +78,34 @@ def scrape_kalshi(coins):
 
                 while len(rows_data) >= BATCH_SIZE:
                     row_chunk = rows_data[:BATCH_SIZE]
-                    if not supabase_submit(supabase_client, row_chunk):
+                    if not await data_sink.submit_rows(
+                        'kalshi_markets',
+                        row_chunk,
+                        csv_filename='kalshi_test.csv',
+                        fieldnames=MARKET_FIELDS + ['curr_time', 'coin'],
+                    ):
                         break
 
                     print(f'inserted {len(row_chunk)} kalshi rows')
                     del rows_data[:BATCH_SIZE]
+
+                # Submit remaining rows at end of cycle
+                if rows_data:
+                    if await data_sink.submit_rows(
+                        'kalshi_markets',
+                        rows_data,
+                        csv_filename='kalshi_test.csv',
+                        fieldnames=MARKET_FIELDS + ['curr_time', 'coin'],
+                    ):
+                        print(f'inserted {len(rows_data)} remaining kalshi rows')
+                    rows_data.clear()
             except Exception as e:
                 print(f'kalshi cycle failed: {type(e).__name__}: {e}')
 
             elapsed = time.time() - start
-            time.sleep(max(0, POLL_SECONDS - elapsed))
-
-
-def supabase_submit(supabase_client, rows_data):
-    for attempt in range(1, INSERT_RETRIES + 1):
-        try:
-            supabase_client.table('kalshi_markets').insert(rows_data).execute()
-            return True
-        except Exception as e:
-            print(f'kalshi_markets insert failed (attempt {attempt}/{INSERT_RETRIES}): {e}')
-            supabase_client = create_supabase_client()
-            time.sleep(attempt)
-
-    print(f'kalshi_markets insert gave up after {INSERT_RETRIES} attempts')
-    return False
-
+            await asyncio.sleep(max(0, POLL_SECONDS - elapsed))
 
 if __name__ == '__main__': 
 
     coins = ['ETH', 'BTC', 'XRP', 'SOL']
-    scrape_kalshi(coins)
+    asyncio.run(scrape_kalshi(coins))
