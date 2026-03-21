@@ -195,6 +195,8 @@ async def scrape_polymarket(coins, data_sink=None):
             interval_start_unix = int(time.time() // time_horizon_seconds) * time_horizon_seconds
 
             try:
+                print("USING NEW POLYMARKET CODE")
+
                 tasks = [collect_polymarket_row(session, coin, curr_time, interval_start_unix) for coin in coins]
                 row_batch = await asyncio.gather(*tasks)
                 row_batch = [row for row in row_batch if row is not None]

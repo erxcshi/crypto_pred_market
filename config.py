@@ -6,7 +6,6 @@ from supabase import Client, create_client
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 DATA_SINK_TEST = 'test'
-DATA_SINK_ACTUAL = 'actual'
 
 
 def create_supabase_client() -> Client:
@@ -18,26 +17,21 @@ def create_supabase_client() -> Client:
 
 class DataSink:
     def __init__(self, mode: str | None = None):
-        self.mode = mode or DATA_SINK_ACTUAL
-        if self.mode not in {DATA_SINK_TEST, DATA_SINK_ACTUAL}:
-            raise ValueError(
-                f'Unsupported data sink mode {self.mode!r}. '
-                f'Use {DATA_SINK_TEST!r} or {DATA_SINK_ACTUAL!r}.'
-            )
-        self.supabase_client = create_supabase_client() if self.mode == DATA_SINK_ACTUAL else None
+        self.mode = mode or 'actual'
+        self.supabase_client = create_supabase_client() if self.mode == 'actual' else None
 
     async def submit_rows(self, table_name, rows_data, csv_filename=None, fieldnames=None):
         if not rows_data:
             return True
 
         try:
-            if self.mode == DATA_SINK_TEST:
+            if self.mode == 'test':
                 self._write_csv(rows_data, csv_filename or f'{table_name}_test.csv', fieldnames)
             else:
                 self.supabase_client.table(table_name).insert(rows_data).execute()
             return True
         except Exception as e:
-            sink_name = 'CSV' if self.mode == DATA_SINK_TEST else 'Supabase'
+            sink_name = 'CSV' if self.mode == 'test' else 'Supabase'
             print(f'{sink_name} write failed for {table_name}: {type(e).__name__}: {e}')
             return False
 

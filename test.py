@@ -41,7 +41,7 @@ async def main():
 
     try:
         # Run for 60 seconds
-        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=60)
+        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=600000)
     except asyncio.TimeoutError:
         print("Test completed after 60 seconds")
     except Exception as e:

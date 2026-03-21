@@ -7,7 +7,7 @@ import aiohttp
 from crypto_pred_market.config import create_data_sink
 
 # SUPABASE 
-POLL_SECONDS = 2
+POLL_SECONDS = 1
 INSERT_RETRIES = 3
 BATCH_SIZE = 100
 MARKET_FIELDS = [
