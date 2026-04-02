@@ -10,7 +10,6 @@ from crypto_pred_market.config import create_data_sink
 DERIBIT_BASE = 'https://www.deribit.com/api/v2'
 CURRENCIES = ['BTC', 'ETH']
 OPTION_BATCH_SIZE = 200
-HV_BATCH_SIZE = 50
 POLL_SECONDS = 5
 INSERT_RETRIES = 3
 TICKER_BATCH_SIZE = 5
