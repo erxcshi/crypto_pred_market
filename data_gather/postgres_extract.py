@@ -8,7 +8,7 @@ from pathlib import Path
 # Load environment variables from .env
 load_dotenv()
 
-output_dir = Path(__file__).resolve().parents[0] / 'data_files'
+output_dir = Path(__file__).resolve().parent / 'data_files'
 print(output_dir)
 # Fetch variables
 PASSWORD = os.getenv("PASSWORD")

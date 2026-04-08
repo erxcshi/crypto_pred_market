@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import aiohttp
 
-from crypto_pred_market.config import create_data_sink
+from config import create_data_sink
 
 
 DERIBIT_BASE = 'https://www.deribit.com/api/v2'

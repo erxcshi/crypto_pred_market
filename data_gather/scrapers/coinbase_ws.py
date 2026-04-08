@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import websockets
 
-from crypto_pred_market.config import create_data_sink
+from config import create_data_sink
 
 WS_URL = 'wss://ws-feed.exchange.coinbase.com'
 PRODUCT_IDS = ['BTC-USD', 'ETH-USD', 'XRP-USD', 'SOL-USD']

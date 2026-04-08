@@ -1,3 +1,8 @@
-example: 
+run from inside the crypto_pred_market repo root!!
+python -m build_features.sql_functions
 
-python -m crypto_pred_market.build_features.sql_functions
+scrape from apis and ws: 
+python -m data_gather.run_all
+
+collect data from supabase: 
+python -m data_gather.postgres_extract

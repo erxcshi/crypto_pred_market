@@ -1,15 +1,13 @@
 import asyncio
-import os
-import sys
+from pathlib import Path
 
-# Add the project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from config import create_data_sink
+from data_gather.scrapers.coinbase_ws import stream_coinbase_trades
+from data_gather.scrapers.deribit_vol import scrape_deribit_vol
+from data_gather.scrapers.kalshi import scrape_kalshi
+from data_gather.scrapers.polymarket import scrape_polymarket
 
-from crypto_pred_market.config import create_data_sink
-from crypto_pred_market.data_gather.coinbase_ws import stream_coinbase_trades
-from crypto_pred_market.data_gather.deribit_vol import scrape_deribit_vol
-from crypto_pred_market.data_gather.kalshi import scrape_kalshi
-from crypto_pred_market.data_gather.polymarket import scrape_polymarket
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 async def main():
     coins = ['BTC', 'ETH', 'XRP', 'SOL']
@@ -24,12 +22,13 @@ async def main():
     ]
     
     for csv_file in csv_files:
+        csv_path = PROJECT_ROOT / csv_file
         try:
-            if os.path.exists(csv_file):
-                os.remove(csv_file)
-                print(f'Deleted {csv_file}')
+            if csv_path.exists():
+                csv_path.unlink()
+                print(f'Deleted {csv_path}')
         except Exception as e:
-            print(f'Failed to delete {csv_file}: {e}')
+            print(f'Failed to delete {csv_path}: {e}')
 
     # Create tasks for each scraper
     tasks = [

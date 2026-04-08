@@ -1,32 +1,34 @@
-from crypto_pred_market.config import create_supabase_client
+from config import create_supabase_client
 from pathlib import Path
 import pandas as pd
+from postgrest.exceptions import APIError
 
 client = create_supabase_client()
 
 def fetch_data(client, table_name, columns='*', limit=None):
-    batch_size=1000 
-
-    
-
+    batch_size = 250
     all_rows = []
     start = 0
 
     while True:
         end = start + batch_size - 1
 
-        if limit is not None:
-            response = client.table(table_name).select(columns).limit(limit).range(start, end).execute()
-            if len(all_rows) >= limit: 
-                return pd.DataFrame(all_rows[:limit])
-        else:
+        print(f'fetching {table_name} rows {start} to {end}')
+        try:
             response = client.table(table_name).select(columns).range(start, end).execute()
+        except APIError as e:
+            print(f'{table_name} failed for rows {start} to {end}: {e}')
+            raise
+
         rows = response.data or []
 
         if not rows:
             break
-        
+
         all_rows.extend(rows)
+
+        if limit is not None and len(all_rows) >= limit:
+            return pd.DataFrame(all_rows[:limit])
 
         if len(rows) < batch_size:
             break
@@ -38,7 +40,7 @@ def fetch_data(client, table_name, columns='*', limit=None):
 # WE HAVE TO REMEMBER TO REMOVE THE LAST KALSHI/POLYMARKET 15M ROWS BEFORE TRAINING, BECAUSE THEY ARE INCOMPLETE
 def main():
     client = create_supabase_client()
-    output_dir = Path(__file__).resolve().parents[0] / 'data_files'
+    output_dir = Path(__file__).resolve().parent / 'data_files'
 
     kalshi_df = fetch_data(client, 'kalshi_markets')
     coinbase_df = fetch_data(client, 'coinbase_trades')

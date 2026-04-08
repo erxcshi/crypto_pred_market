@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import aiohttp
 
-from crypto_pred_market.config import create_data_sink
+from config import create_data_sink
 
 # SUPABASE 
 POLL_SECONDS = 1

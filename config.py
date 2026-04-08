@@ -1,9 +1,11 @@
 import os
 import csv
+from pathlib import Path
 from dotenv import load_dotenv
 from supabase import Client, create_client
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+PROJECT_ROOT = Path(__file__).resolve().parent
+load_dotenv(PROJECT_ROOT / '.env')
 
 DATA_SINK_TEST = 'test'
 
@@ -36,8 +38,12 @@ class DataSink:
             return False
 
     def _write_csv(self, rows_data, csv_filename, fieldnames=None):
+        csv_path = Path(csv_filename)
+        if not csv_path.is_absolute():
+            csv_path = PROJECT_ROOT / csv_path
+
         resolved_fieldnames = list(fieldnames or rows_data[0].keys())
-        with open(csv_filename, 'a', newline='') as csvfile:
+        with csv_path.open('a', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=resolved_fieldnames)
             if csvfile.tell() == 0:
                 writer.writeheader()

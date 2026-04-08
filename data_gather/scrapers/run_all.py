@@ -1,13 +1,13 @@
 import asyncio
-import os
 import sys
+from pathlib import Path
 
-PROJECT_PARENT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MODULES = [
-    'crypto_pred_market.data_gather.coinbase_ws',
-    'crypto_pred_market.data_gather.deribit_vol',
-    'crypto_pred_market.data_gather.kalshi',
-    'crypto_pred_market.data_gather.polymarket',
+    'data_gather.scrapers.coinbase_ws',
+    'data_gather.scrapers.deribit_vol',
+    'data_gather.scrapers.kalshi',
+    'data_gather.scrapers.polymarket',
 ]
 
 
@@ -26,7 +26,7 @@ async def run_script(module_name):
         module_name,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        cwd=PROJECT_PARENT,
+        cwd=PROJECT_ROOT,
     )
 
     stdout_task = asyncio.create_task(stream_output(module_name, process.stdout))
