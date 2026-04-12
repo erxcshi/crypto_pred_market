@@ -40,7 +40,7 @@ def fetch_data(client, table_name, columns='*', limit=None):
 # WE HAVE TO REMEMBER TO REMOVE THE LAST KALSHI/POLYMARKET 15M ROWS BEFORE TRAINING, BECAUSE THEY ARE INCOMPLETE
 def main():
     client = create_supabase_client()
-    output_dir = Path(__file__).resolve().parent / 'data_files'
+    raw_data_dir = Path(__file__).resolve().parent / 'raw_data'
 
     kalshi_df = fetch_data(client, 'kalshi_markets')
     coinbase_df = fetch_data(client, 'coinbase_trades')
@@ -51,12 +51,12 @@ def main():
         df.reset_index(drop=True, inplace=True )
         df['id'] = df.index
 
-    kalshi_df.to_csv(output_dir / 'kalshi_markets.csv', index=False)
-    coinbase_df.to_csv(output_dir / 'coinbase_trades.csv', index=False)
-    options_df.to_csv(output_dir / 'deribit_option_vols.csv', index=False)
-    polymarket_df.to_csv(output_dir / 'polymarket_markets.csv', index=False)
+    kalshi_df.to_csv(raw_data_dir / 'kalshi_markets.csv', index=False)
+    coinbase_df.to_csv(raw_data_dir / 'coinbase_trades.csv', index=False)
+    options_df.to_csv(raw_data_dir / 'deribit_option_vols.csv', index=False)
+    polymarket_df.to_csv(raw_data_dir / 'polymarket_markets.csv', index=False)
 
-    print(f'csvs generated in {output_dir}')
+    print(f'csvs generated in {raw_data_dir}')
 
 if __name__ == "__main__":
     main()

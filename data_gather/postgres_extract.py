@@ -8,8 +8,8 @@ from pathlib import Path
 # Load environment variables from .env
 load_dotenv()
 
-output_dir = Path(__file__).resolve().parent / 'data_files'
-print(output_dir)
+raw_data_dir = Path(__file__).resolve().parent / 'raw_data'
+print(raw_data_dir)
 # Fetch variables
 PASSWORD = os.getenv("PASSWORD")
 HOST = os.getenv("HOST")
@@ -32,16 +32,16 @@ except Exception as e:
 
 coinbase_df = pd.read_sql('SELECT * FROM coinbase_trades', engine)
 coinbase_df['id'] = coinbase_df.index
-coinbase_df.to_csv(output_dir /'coinbase_trades.csv', index=False)
+coinbase_df.to_csv(raw_data_dir /'coinbase_trades.csv', index=False)
 
 kalshi_df = pd.read_sql('SELECT * FROM kalshi_markets', engine)
 kalshi_df['id'] = kalshi_df.index
-kalshi_df.to_csv(output_dir /'kalshi_markets.csv', index=False)
+kalshi_df.to_csv(raw_data_dir /'kalshi_markets.csv', index=False)
 
 polymarket_df = pd.read_sql('SELECT * FROM polymarket_markets', engine)
 polymarket_df['id'] = polymarket_df.index
-polymarket_df.to_csv(output_dir /'polymarket_markets.csv', index=False)
+polymarket_df.to_csv(raw_data_dir /'polymarket_markets.csv', index=False)
 
 options_df = pd.read_sql('SELECT * FROM deribit_option_vols', engine)
 options_df['id'] = options_df.index
-options_df.to_csv(output_dir /'deribit_option_vols.csv', index=False)
+options_df.to_csv(raw_data_dir /'deribit_option_vols.csv', index=False)

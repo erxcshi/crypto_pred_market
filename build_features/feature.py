@@ -1,9 +1,10 @@
 import polars as pl 
 from pathlib import Path
 
-data_files_dir = Path(__file__).resolve().parent.parent / 'data_gather' / 'data_files'
-print(data_files_dir)
-# df = pl.scan_csv(data_files_dir / 'kalshi_markets.csv').collect()
+raw_data_dir = Path(__file__).resolve().parent.parent / 'data_gather' / 'raw_data'
+
+df = pl.scan_csv(raw_data_dir / 'kalshi_markets.csv').collect()
+
 # def build_coin_df(coin): 
 #     df_copy = df[df['coin'] == coin].copy()
 #     col_identifiers = ['open_time', 'close_time']
