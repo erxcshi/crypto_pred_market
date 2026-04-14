@@ -3,3 +3,4 @@ __pycache__/
 .env
 data_gather/raw_data/*.csv
 data_gather/filtered_data/*.csv
+data_gather/final_data/*.csv
