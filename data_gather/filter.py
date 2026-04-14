@@ -88,10 +88,11 @@ class build_main_df():
     
     def normalize_kalshi(self):
         kalshi = self._to_datetime(self.kalshi, ['open_time', 'curr_time', 'close_time'])
+        first_event_time, last_event_time = kalshi.select(pl.col('open_time').min(), pl.col('close_time').max()).row(0)
+        kalshi = kalshi.filter(~((pl.col("open_time") == first_event_time) | (pl.col("close_time") == last_event_time)))
         kalshi = kalshi.with_columns((pl.col('close_time') - pl.col('curr_time')).dt.total_seconds().alias('time_to_close'))
         kalshi = kalshi.with_columns(pl.col("curr_time").shift(1).over("coin").alias("prev_time")
                              ).with_columns((pl.col("curr_time") - pl.col("prev_time")).dt.total_seconds().alias("time_diff_seconds"))
-
         kalshi = kalshi.filter(pl.col("time_diff_seconds").is_between(0.9, 1.1))
 
         
