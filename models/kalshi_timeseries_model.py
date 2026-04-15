@@ -85,6 +85,11 @@ def read_final_data(path: Path) -> pl.DataFrame:
 
 def add_future_target(df: pl.DataFrame, horizon_seconds: int) -> pl.DataFrame:
     target_col = f"yes_mid_dollars_t_plus_{horizon_seconds}s"
+    future_price_cols = [
+        "yes_bid_dollars",
+        "no_bid_dollars",
+        "yes_spread_dollars",
+    ]
 
     missing = [col for col in [*EVENT_COLUMNS, "yes_mid_dollars"] if col not in df.columns]
     if missing:
@@ -96,16 +101,17 @@ def add_future_target(df: pl.DataFrame, horizon_seconds: int) -> pl.DataFrame:
             (pl.col("curr_time") + pl.duration(seconds=horizon_seconds)).alias("target_time")
         )
     )
-    future_prices = (
-        df.select(
-            [
-                *EVENT_COLUMNS,
-                pl.col("curr_time").alias("future_time"),
-                pl.col("yes_mid_dollars").alias(target_col),
-            ]
-        )
-        .sort([*EVENT_COLUMNS, "future_time"])
+    future_exprs = [
+        *EVENT_COLUMNS,
+        pl.col("curr_time").alias("future_time"),
+        pl.col("yes_mid_dollars").alias(target_col),
+    ]
+    future_exprs.extend(
+        pl.col(col).alias(f"{col}_t_plus_{horizon_seconds}s")
+        for col in future_price_cols
+        if col in df.columns
     )
+    future_prices = df.select(future_exprs).sort([*EVENT_COLUMNS, "future_time"])
 
     with warnings.catch_warnings():
         warnings.filterwarnings(

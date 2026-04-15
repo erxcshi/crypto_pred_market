@@ -135,55 +135,123 @@ def clean_feature_frame(
     df: pl.DataFrame,
     feature_cols: list[str],
     target_col: str,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    needed = [*feature_cols, target_col, "yes_mid_dollars"]
-    if "yes_spread_dollars" in df.columns:
-        needed.append("yes_spread_dollars")
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    needed = [
+        *feature_cols,
+        target_col,
+        "yes_mid_dollars",
+    ]
+    needed.extend(execution_needed_cols(df, target_col))
 
     clean_df = df.select(list(dict.fromkeys(needed))).drop_nulls()
     x = clean_df.select(feature_cols).to_numpy()
     target = clean_df.select(target_col).to_numpy().ravel()
     current = clean_df.select("yes_mid_dollars").to_numpy().ravel()
+    yes_ask, no_ask, future_yes_bid, future_no_bid = execution_price_arrays(clean_df, target_col)
 
-    if "yes_spread_dollars" in clean_df.columns:
-        spread = clean_df.select("yes_spread_dollars").to_numpy().ravel()
-        spread = np.nan_to_num(spread, nan=0.0, posinf=0.0, neginf=0.0)
-        spread = np.maximum(spread, 0.0)
+    return x, target, current, yes_ask, no_ask, future_yes_bid, future_no_bid
+
+
+def future_execution_col(base_col: str, target_col: str) -> str:
+    return f"{base_col}_t_plus_{target_col.rsplit('_t_plus_', maxsplit=1)[1]}"
+
+
+def execution_needed_cols(df: pl.DataFrame, target_col: str) -> list[str]:
+    needed = ["yes_spread_dollars", future_execution_col("yes_spread_dollars", target_col)]
+    optional_cols = [
+        "yes_ask_dollars",
+        "no_ask_dollars",
+        future_execution_col("yes_bid_dollars", target_col),
+        future_execution_col("no_bid_dollars", target_col),
+    ]
+    needed.extend(col for col in optional_cols if col in df.columns)
+    return needed
+
+
+def execution_price_arrays(clean_df: pl.DataFrame, target_col: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    current_mid = clean_df.select("yes_mid_dollars").to_numpy().ravel()
+    future_mid = clean_df.select(target_col).to_numpy().ravel()
+    current_spread = clean_df.select("yes_spread_dollars").to_numpy().ravel()
+    future_spread = clean_df.select(future_execution_col("yes_spread_dollars", target_col)).to_numpy().ravel()
+
+    current_half_spread = np.nan_to_num(np.maximum(current_spread, 0.0), nan=0.0) / 2.0
+    future_half_spread = np.nan_to_num(np.maximum(future_spread, 0.0), nan=0.0) / 2.0
+    derived_yes_ask = np.clip(current_mid + current_half_spread, 0.0, 1.0)
+    derived_yes_bid = np.clip(current_mid - current_half_spread, 0.0, 1.0)
+    derived_future_yes_ask = np.clip(future_mid + future_half_spread, 0.0, 1.0)
+    derived_future_yes_bid = np.clip(future_mid - future_half_spread, 0.0, 1.0)
+
+    if "yes_ask_dollars" in clean_df.columns:
+        yes_ask = clean_df.select("yes_ask_dollars").to_numpy().ravel()
     else:
-        spread = np.zeros_like(current)
+        yes_ask = derived_yes_ask
 
-    return x, target, current, spread, np.arange(len(target))
+    if "no_ask_dollars" in clean_df.columns:
+        no_ask = clean_df.select("no_ask_dollars").to_numpy().ravel()
+    else:
+        no_ask = 1.0 - derived_yes_bid
+
+    future_yes_bid_col = future_execution_col("yes_bid_dollars", target_col)
+    if future_yes_bid_col in clean_df.columns:
+        future_yes_bid = clean_df.select(future_yes_bid_col).to_numpy().ravel()
+    else:
+        future_yes_bid = derived_future_yes_bid
+
+    future_no_bid_col = future_execution_col("no_bid_dollars", target_col)
+    if future_no_bid_col in clean_df.columns:
+        future_no_bid = clean_df.select(future_no_bid_col).to_numpy().ravel()
+    else:
+        future_no_bid = 1.0 - derived_future_yes_ask
+
+    return yes_ask, no_ask, future_yes_bid, future_no_bid
 
 
-def persistence_predictions(test_df: pl.DataFrame, target_col: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    clean_df = test_df.select([target_col, "yes_mid_dollars", "yes_spread_dollars"]).drop_nulls()
+def clean_execution_frame(test_df: pl.DataFrame, target_col: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    needed = [
+        target_col,
+        "yes_mid_dollars",
+        *execution_needed_cols(test_df, target_col),
+    ]
+    clean_df = test_df.select(needed).drop_nulls()
     actual = clean_df.select(target_col).to_numpy().ravel()
     current = clean_df.select("yes_mid_dollars").to_numpy().ravel()
-    spread = clean_df.select("yes_spread_dollars").to_numpy().ravel()
-    return actual, current, np.nan_to_num(np.maximum(spread, 0.0), nan=0.0)
+    yes_ask, no_ask, future_yes_bid, future_no_bid = execution_price_arrays(clean_df, target_col)
+    return actual, current, yes_ask, no_ask, future_yes_bid, future_no_bid
+
+
+def persistence_predictions(test_df: pl.DataFrame, target_col: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    return clean_execution_frame(test_df, target_col)
 
 
 def trend_predictions(
     test_df: pl.DataFrame,
     target_col: str,
     horizon: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    required = [target_col, "yes_mid_dollars", "yes_mid_lag_5s", "yes_spread_dollars"]
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    required = [
+        target_col,
+        "yes_mid_dollars",
+        "yes_mid_lag_5s",
+        *execution_needed_cols(test_df, target_col),
+    ]
     clean_df = test_df.select(required).drop_nulls()
     actual = clean_df.select(target_col).to_numpy().ravel()
     current = clean_df.select("yes_mid_dollars").to_numpy().ravel()
     lag = clean_df.select("yes_mid_lag_5s").to_numpy().ravel()
-    spread = clean_df.select("yes_spread_dollars").to_numpy().ravel()
+    yes_ask, no_ask, future_yes_bid, future_no_bid = execution_price_arrays(clean_df, target_col)
     slope_per_second = (current - lag) / 5.0
     pred = np.clip(current + slope_per_second * horizon, 0.0, 1.0)
-    return actual, pred, current, np.nan_to_num(np.maximum(spread, 0.0), nan=0.0)
+    return actual, pred, current, yes_ask, no_ask, future_yes_bid, future_no_bid
 
 
 def trading_metrics(
     actual: np.ndarray,
     pred: np.ndarray,
     current: np.ndarray,
-    spread: np.ndarray,
+    yes_ask: np.ndarray,
+    no_ask: np.ndarray,
+    future_yes_bid: np.ndarray,
+    future_no_bid: np.ndarray,
     thresholds: list[float],
     min_coverage: float,
 ) -> dict[str, float]:
@@ -210,19 +278,22 @@ def trading_metrics(
         coverage = float(np.mean(traded))
 
         if np.any(traded):
-            gross_pnl = position[traded] * actual_delta[traded]
-            half_spread_round_trip_pnl = gross_pnl - spread[traded]
-            one_cent_pnl = gross_pnl - 0.01
+            traded_position = position[traded]
+            realized_pnl = np.where(
+                traded_position > 0,
+                future_yes_bid[traded] - yes_ask[traded],
+                future_no_bid[traded] - no_ask[traded],
+            )
             threshold_rows.append(
                 {
                     "threshold": threshold,
                     "coverage": coverage,
                     "trade_count": int(np.sum(traded)),
-                    "hit_rate": float(np.mean(gross_pnl > 0)),
-                    "avg_gross_pnl": float(np.mean(gross_pnl)),
-                    "total_gross_pnl": float(np.sum(gross_pnl)),
-                    "avg_pnl_after_1c": float(np.mean(one_cent_pnl)),
-                    "avg_pnl_after_current_spread": float(np.mean(half_spread_round_trip_pnl)),
+                    "yes_trade_count": int(np.sum(traded_position > 0)),
+                    "no_trade_count": int(np.sum(traded_position < 0)),
+                    "hit_rate": float(np.mean(realized_pnl > 0)),
+                    "avg_realized_pnl": float(np.mean(realized_pnl)),
+                    "total_realized_pnl": float(np.sum(realized_pnl)),
                 }
             )
         else:
@@ -231,38 +302,36 @@ def trading_metrics(
                     "threshold": threshold,
                     "coverage": coverage,
                     "trade_count": 0,
+                    "yes_trade_count": 0,
+                    "no_trade_count": 0,
                     "hit_rate": 0.0,
-                    "avg_gross_pnl": 0.0,
-                    "total_gross_pnl": 0.0,
-                    "avg_pnl_after_1c": 0.0,
-                    "avg_pnl_after_current_spread": 0.0,
+                    "avg_realized_pnl": 0.0,
+                    "total_realized_pnl": 0.0,
                 }
             )
 
     eligible = [row for row in threshold_rows if row["coverage"] >= min_coverage]
     if not eligible:
         eligible = threshold_rows
-    best_by_spread = max(eligible, key=lambda row: row["avg_pnl_after_current_spread"])
-    best_by_1c = max(eligible, key=lambda row: row["avg_pnl_after_1c"])
+    best_by_realized = max(eligible, key=lambda row: row["avg_realized_pnl"])
 
     payload = {
         "directional_accuracy": directional_accuracy,
         "pred_actual_delta_corr": corr,
-        "best_threshold_by_spread_cost": best_by_spread["threshold"],
-        "best_coverage_by_spread_cost": best_by_spread["coverage"],
-        "best_hit_rate_by_spread_cost": best_by_spread["hit_rate"],
-        "best_avg_gross_pnl_by_spread_cost": best_by_spread["avg_gross_pnl"],
-        "best_avg_pnl_after_current_spread": best_by_spread["avg_pnl_after_current_spread"],
-        "best_threshold_by_1c_cost": best_by_1c["threshold"],
-        "best_coverage_by_1c_cost": best_by_1c["coverage"],
-        "best_avg_pnl_after_1c": best_by_1c["avg_pnl_after_1c"],
+        "best_threshold_by_realized_pnl": best_by_realized["threshold"],
+        "best_coverage_by_realized_pnl": best_by_realized["coverage"],
+        "best_hit_rate_by_realized_pnl": best_by_realized["hit_rate"],
+        "best_avg_realized_pnl": best_by_realized["avg_realized_pnl"],
+        "best_total_realized_pnl": best_by_realized["total_realized_pnl"],
+        "best_yes_trade_count": best_by_realized["yes_trade_count"],
+        "best_no_trade_count": best_by_realized["no_trade_count"],
     }
 
     for row in threshold_rows:
         suffix = str(row["threshold"]).replace(".", "p")
         payload[f"coverage_thr_{suffix}"] = row["coverage"]
-        payload[f"avg_gross_pnl_thr_{suffix}"] = row["avg_gross_pnl"]
-        payload[f"avg_pnl_after_current_spread_thr_{suffix}"] = row["avg_pnl_after_current_spread"]
+        payload[f"avg_realized_pnl_thr_{suffix}"] = row["avg_realized_pnl"]
+        payload[f"total_realized_pnl_thr_{suffix}"] = row["total_realized_pnl"]
 
     return payload
 
@@ -279,22 +348,22 @@ def run_spec(
     started = time.monotonic()
 
     if spec.target_mode == "persistence":
-        actual, current, spread = persistence_predictions(test_df, target_col)
+        actual, current, yes_ask, no_ask, future_yes_bid, future_no_bid = persistence_predictions(test_df, target_col)
         pred = current.copy()
         feature_cols: list[str] = []
         fitted = None
     elif spec.target_mode == "trend_5s":
-        actual, pred, current, spread = trend_predictions(test_df, target_col, horizon)
+        actual, pred, current, yes_ask, no_ask, future_yes_bid, future_no_bid = trend_predictions(test_df, target_col, horizon)
         feature_cols = ["yes_mid_dollars", "yes_mid_lag_5s"]
         fitted = None
     else:
         feature_cols = feature_columns(train_df, target_col, spec.feature_group)
-        x_train, train_target, train_current, _, _ = clean_feature_frame(
+        x_train, train_target, train_current, _, _, _, _ = clean_feature_frame(
             train_df,
             feature_cols,
             target_col,
         )
-        x_test, actual, current, spread, _ = clean_feature_frame(
+        x_test, actual, current, yes_ask, no_ask, future_yes_bid, future_no_bid = clean_feature_frame(
             test_df,
             feature_cols,
             target_col,
@@ -313,7 +382,17 @@ def run_spec(
         pred = np.clip(pred, 0.0, 1.0)
 
     regression = evaluate(actual, pred)
-    trading = trading_metrics(actual, pred, current, spread, thresholds, min_coverage)
+    trading = trading_metrics(
+        actual,
+        pred,
+        current,
+        yes_ask,
+        no_ask,
+        future_yes_bid,
+        future_no_bid,
+        thresholds,
+        min_coverage,
+    )
     elapsed = time.monotonic() - started
 
     row = {
@@ -339,7 +418,7 @@ def write_summary(
 ) -> None:
     top_by_horizon = (
         results.sort(
-            ["horizon_seconds", "best_avg_pnl_after_current_spread", "directional_accuracy"],
+            ["horizon_seconds", "best_avg_realized_pnl", "directional_accuracy"],
             descending=[False, True, True],
         )
         .group_by("horizon_seconds", maintain_order=True)
@@ -351,9 +430,9 @@ def write_summary(
         "rmse",
         "mae",
         "directional_accuracy",
-        "best_threshold_by_spread_cost",
-        "best_coverage_by_spread_cost",
-        "best_avg_pnl_after_current_spread",
+        "best_threshold_by_realized_pnl",
+        "best_coverage_by_realized_pnl",
+        "best_avg_realized_pnl",
     ]
     table_lines = [
         "| " + " | ".join(summary_cols) + " |",
@@ -373,8 +452,11 @@ def write_summary(
     lines = [
         "# Kalshi Time-Series Experiment Summary",
         "",
-        "Selection objective: maximize average per-contract PnL after an approximate current-spread round-trip cost,",
+        "Selection objective: maximize average realized executable PnL per 1-contract trade,",
         "requiring at least the configured minimum test-set trade coverage.",
+        "",
+        "PnL enters at the current ask and exits at the future bid:",
+        "long YES = future YES bid - current YES ask; long NO = future NO bid - current NO ask.",
         "",
         "## Best Overall",
         "",
@@ -386,11 +468,13 @@ def write_summary(
         f"- RMSE: {best_overall['rmse']:.6f}",
         f"- MAE: {best_overall['mae']:.6f}",
         f"- Directional accuracy: {best_overall['directional_accuracy']:.4f}",
-        f"- Best threshold: {best_overall['best_threshold_by_spread_cost']}",
-        f"- Coverage at best threshold: {best_overall['best_coverage_by_spread_cost']:.4f}",
-        f"- Hit rate at best threshold: {best_overall['best_hit_rate_by_spread_cost']:.4f}",
-        f"- Avg gross PnL at best threshold: {best_overall['best_avg_gross_pnl_by_spread_cost']:.6f}",
-        f"- Avg PnL after current-spread cost: {best_overall['best_avg_pnl_after_current_spread']:.6f}",
+        f"- Best threshold: {best_overall['best_threshold_by_realized_pnl']}",
+        f"- Coverage at best threshold: {best_overall['best_coverage_by_realized_pnl']:.4f}",
+        f"- Hit rate at best threshold: {best_overall['best_hit_rate_by_realized_pnl']:.4f}",
+        f"- YES trades at best threshold: {best_overall['best_yes_trade_count']}",
+        f"- NO trades at best threshold: {best_overall['best_no_trade_count']}",
+        f"- Avg realized PnL at best threshold: {best_overall['best_avg_realized_pnl']:.6f}",
+        f"- Total realized PnL at best threshold: {best_overall['best_total_realized_pnl']:.6f}",
         f"- Saved model: `{best_model_path}`",
         "",
         "## Top 3 By Horizon",
@@ -403,7 +487,7 @@ def write_summary(
         "- `trend_5s` extrapolates the last 5 seconds of YES midpoint movement.",
         "- `ridge_price_*` directly predicts the future price.",
         "- `ridge_delta_*` predicts the future price change and adds it back to the current price.",
-        "- Spread-adjusted PnL is only an approximation because the future executable spread is not in the target.",
+        "- Trading PnL uses executable ask/bid prices, while RMSE/MAE still evaluate future YES midpoint forecasts.",
     ]
     summary_path.write_text("\n".join(lines))
 
@@ -439,12 +523,12 @@ def main() -> None:
             print(
                 f"{spec.name}: rmse={row['rmse']:.4f}, "
                 f"dir={row['directional_accuracy']:.3f}, "
-                f"spread_pnl={row['best_avg_pnl_after_current_spread']:.5f}, "
-                f"thr={row['best_threshold_by_spread_cost']}"
+                f"realized_pnl={row['best_avg_realized_pnl']:.5f}, "
+                f"thr={row['best_threshold_by_realized_pnl']}"
             )
 
-            score = row["best_avg_pnl_after_current_spread"]
-            if row["best_coverage_by_spread_cost"] >= args.min_coverage and score > best_score:
+            score = row["best_avg_realized_pnl"]
+            if row["best_coverage_by_realized_pnl"] >= args.min_coverage and score > best_score:
                 best_score = score
                 best_bundle = {
                     "row": row,
@@ -468,7 +552,8 @@ def main() -> None:
 
     best_metadata = {
         "data_path": str(data_path),
-        "selection_metric": "best_avg_pnl_after_current_spread",
+        "selection_metric": "best_avg_realized_pnl",
+        "pnl_method": "enter current ask, exit future bid at forecast horizon",
         "min_coverage": args.min_coverage,
         "best": best_row,
         "feature_cols": best_bundle["feature_cols"],

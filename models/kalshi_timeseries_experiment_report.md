@@ -73,13 +73,21 @@ Trading metrics:
 
 ```text
 coverage: percent of rows where abs(predicted move) exceeds threshold
-hit rate: percent of trades with positive gross PnL
-average gross PnL per 1-contract trade
-average PnL after approximate current-spread round-trip cost
+hit rate: percent of trades with positive realized PnL
+average realized PnL per 1-contract trade
+total realized PnL across covered 1-contract trades
+YES/NO trade counts at the selected threshold
 ```
 
-The spread-adjusted metric is approximate because the future executable spread
-is not in the target.
+Realized PnL now uses executable entry/exit prices:
+
+```text
+long YES = future YES bid - current YES ask
+long NO = future NO bid - current NO ask
+```
+
+When raw bid/ask columns are not present in `final_data.csv`, executable prices
+are derived from `yes_mid_dollars` and `yes_spread_dollars`.
 
 ## Main Findings
 
@@ -87,7 +95,7 @@ Very short horizons are not attractive after spread costs:
 
 ```text
 1s and 2s had high directional accuracy in some variants, but expected
-spread-adjusted trading PnL was negative or near zero.
+realized executable trading PnL was negative or near zero.
 ```
 
 BTC spot features matter:
@@ -120,16 +128,18 @@ For 30s-120s, 10 cents was a better action threshold than 5 cents.
 
 ## Best Raw Edge Model
 
-The highest average spread-adjusted PnL with at least 1 percent coverage was:
+The highest average realized PnL with at least 1 percent coverage was:
 
 ```text
 horizon: 300s
 model: ridge_delta_kalshi_cross_coin_alpha_1000
 threshold: 0.10
 coverage: 1.23%
-hit rate: 61.34%
-avg gross PnL: 19.47 cents
-avg PnL after current spread: 17.99 cents
+hit rate: 60.23%
+YES trades: 401
+NO trades: 1050
+avg realized PnL: 18.15 cents
+total realized PnL: 263.303
 ```
 
 Saved at:
@@ -161,9 +171,11 @@ RMSE: 0.12034
 MAE: 0.07958
 directional accuracy: 64.98%
 coverage at 10c threshold: 4.34%
-hit rate at 10c threshold: 83.69%
-avg gross PnL at 10c threshold: 14.46 cents
-avg PnL after current-spread cost: 13.19 cents
+hit rate at 10c threshold: 80.59%
+YES trades at 10c threshold: 3316
+NO trades at 10c threshold: 4194
+avg realized PnL at 10c threshold: 13.18 cents
+total realized PnL at 10c threshold: 989.833
 ```
 
 Saved at:
@@ -181,7 +193,6 @@ These are offline backtest-style metrics, not live-trading guarantees.
 Important missing realism:
 
 ```text
-actual executable bid/ask at entry and exit
 order fill probability
 market impact
 fees
