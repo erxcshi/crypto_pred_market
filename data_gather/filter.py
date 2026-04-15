@@ -167,7 +167,7 @@ def build_coin_df(
     if add_target:
         build_exprs.append(
             pl.col("last_price_dollars")
-            .shift(-1)
+            .shift(-7)
             .over(event_cols)
             .alias("next_price_dollars_lead1")
         )
