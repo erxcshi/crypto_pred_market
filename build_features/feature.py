@@ -1,4 +1,5 @@
 import polars as pl 
+
 from pathlib import Path
 
 raw_data_dir = Path(__file__).resolve().parent.parent / 'data_gather' / 'raw_data'

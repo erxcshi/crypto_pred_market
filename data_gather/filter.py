@@ -156,6 +156,10 @@ def build_coin_df(
         "yes_mid_change_std_30s",
         "yes_mid_change_std_60s",
         "yes_spread_mean_30s",
+        "yes_ask_dollars",
+        "yes_bid_dollars",
+        "no_ask_dollars",
+        "no_bid_dollars",
     ])
 
     if add_target:
@@ -167,7 +171,7 @@ def build_coin_df(
     if add_target:
         build_exprs.append(
             pl.col("last_price_dollars")
-            .shift(-7)
+            .shift(-1)
             .over(event_cols)
             .alias("next_price_dollars_lead1")
         )
