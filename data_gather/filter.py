@@ -58,7 +58,7 @@ class filter_data():
 
 
 
-def _to_datetime(table: pl.DataFrame, cols: list[str]) -> pl.DataFrame:
+def to_datetime(table: pl.DataFrame, cols: list[str]) -> pl.DataFrame:
     for col in cols:
         table = table.with_columns(
             pl.col(col).str.to_datetime(format="%Y-%m-%d %H:%M:%S%.f%#z", strict=False).alias(col)
@@ -71,9 +71,9 @@ def load_filtered_feature_inputs(base_dir: Path = filtered_data_dir) -> tuple[pl
     all_kalshi = pl.scan_csv(base_dir / "all_kalshi.csv").collect()
     all_polymarket = pl.scan_csv(base_dir / "all_polymarket.csv").collect()
 
-    all_trades = _to_datetime(all_trades, ["curr_time", "trade_time"])
-    all_kalshi = _to_datetime(all_kalshi, ["curr_time", "open_time", "close_time"])
-    all_polymarket = _to_datetime(all_polymarket, ["curr_time", "end_date"])
+    all_trades = to_datetime(all_trades, ["curr_time", "trade_time"])
+    all_kalshi = to_datetime(all_kalshi, ["curr_time", "open_time", "close_time"])
+    all_polymarket = to_datetime(all_polymarket, ["curr_time", "end_date"])
 
     return all_trades, all_kalshi, all_polymarket
 
@@ -487,7 +487,7 @@ def build_btc_feature_tables(
 #         self.kalshi = kalshi
 #         self.polymarket = polymarket
     
-#     def _to_datetime(table: pl.DataFrame, cols: list) -> pl.DataFrame:
+#     def to_datetime(table: pl.DataFrame, cols: list) -> pl.DataFrame:
 #         for col in cols: 
 #             table = table.with_columns(
 #                 pl.col(col)
@@ -497,16 +497,16 @@ def build_btc_feature_tables(
 #         return table
 
 #     def normalize_trades(self):
-#         btc_trades = self._to_datetime(self.btc_trades, ['curr_time', 'trade_time'])
+#         btc_trades = self.to_datetime(self.btc_trades, ['curr_time', 'trade_time'])
 #         btc_trades = btc_trades.with_columns(pl.col("product_id").str.replace("-USD", "").alias("coin"))
 #         btc_trades = btc_trades.drop('product_id')
 #         btc_trades = btc_trades.with_columns(((pl.col("price") * pl.col("size")) * pl.when(pl.col("side") == "buy").then(1).otherwise(-1)).alias("weighted"))
 
 #     def normalize_options(self):
-#         btc_eth_options = self._to_datetime(self.btc_eth_options, ['curr_time', 'expiry_datetime'])
+#         btc_eth_options = self.to_datetime(self.btc_eth_options, ['curr_time', 'expiry_datetime'])
     
 #     def normalize_kalshi(self):
-#         kalshi = self._to_datetime(self.kalshi, ['open_time', 'curr_time', 'close_time'])
+#         kalshi = self.to_datetime(self.kalshi, ['open_time', 'curr_time', 'close_time'])
 #         first_event_time, last_event_time = kalshi.select(pl.col('open_time').min(), pl.col('close_time').max()).row(0)
 #         kalshi = kalshi.filter(~((pl.col("open_time") == first_event_time) | (pl.col("close_time") == last_event_time)))
 #         kalshi = kalshi.with_columns((pl.col('close_time') - pl.col('curr_time')).dt.total_seconds().alias('time_to_close'))
@@ -516,7 +516,7 @@ def build_btc_feature_tables(
 
         
 #     def normalize_polymarket(self):
-#         self.all_coins_polymarket = self._to_datetime(self.all_coins_polymarket, ['curr_time', 'end_date'])
+#         self.all_coins_polymarket = self.to_datetime(self.all_coins_polymarket, ['curr_time', 'end_date'])
 
 #     def build_main_df(self):
 #         pass
