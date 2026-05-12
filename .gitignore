@@ -1,6 +1,18 @@
 .venv/
 __pycache__/
 .env
+
+# Secrets
+*.pem
+*.key
+*.p8
+*_private_key*
+
+# Trading logs / artifacts (large, runtime-generated)
+trading/pnl_log.csv
+trading/feature_log.csv
+trading/model_artifacts.npz
+
 data_gather/raw_data/*.csv
 data_gather/filtered_data/*.csv
 data_gather/final_data/*.csv

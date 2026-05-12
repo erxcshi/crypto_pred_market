@@ -40,17 +40,72 @@ def build_market_row(coin, curr_time, market):
     return row_data
 
 
+async def fetch_orderbook_quotes(session, ticker):
+    """
+    Returns (yes_bid, yes_ask, no_bid, no_ask) in dollars from the live orderbook_fp
+    snapshot, or None if the book is empty on either side or the request fails.
+
+    Kalshi's /markets endpoint caches yes_bid/yes_ask for several seconds; the
+    /orderbook endpoint reflects the live book. Derived asks use the complement
+    rule: YES ask = 1 - best NO bid.
+    """
+    ob_url = f"https://api.elections.kalshi.com/trade-api/v2/markets/{ticker}/orderbook"
+    try:
+        async with session.get(ob_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            ob = data.get('orderbook_fp') or {}
+            yes_bids = sorted(
+                ([float(p), float(s)] for p, s in (ob.get('yes_dollars') or [])),
+                reverse=True,
+            )
+            no_bids = sorted(
+                ([float(p), float(s)] for p, s in (ob.get('no_dollars') or [])),
+                reverse=True,
+            )
+            if not yes_bids or not no_bids:
+                return None
+            best_yes_bid = yes_bids[0][0]
+            best_no_bid = no_bids[0][0]
+            return (
+                best_yes_bid,
+                1.0 - best_no_bid,
+                best_no_bid,
+                1.0 - best_yes_bid,
+            )
+    except Exception:
+        return None
+
+
 async def collect_kalshi_rows(session, coin, curr_time):
     markets_url = f"https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KX{coin}15M&status=open"
     try:
         async with session.get(markets_url, timeout=aiohttp.ClientTimeout(total=15)) as markets_response:
             markets_response.raise_for_status()
             markets_data = await markets_response.json()
+            markets = markets_data.get('markets', [])
 
-            return [
-                build_market_row(coin, curr_time, market)
-                for market in markets_data.get('markets', [])
-            ]
+            # /markets yes_bid/yes_ask lag the live book by seconds in thin 15M
+            # crypto markets, baking staleness into any rolling features trained
+            # on this data. Pull each open market's orderbook in parallel and
+            # override the four bid/ask fields with live top-of-book.
+            async def _ob_or_none(t):
+                return await fetch_orderbook_quotes(session, t) if t else None
+
+            tickers = [m.get('ticker') for m in markets]
+            ob_quotes = await asyncio.gather(*[_ob_or_none(t) for t in tickers])
+
+            rows = []
+            for market, quotes in zip(markets, ob_quotes):
+                row = build_market_row(coin, curr_time, market)
+                if quotes is not None:
+                    yes_bid, yes_ask, no_bid, no_ask = quotes
+                    row['yes_bid_dollars'] = yes_bid
+                    row['yes_ask_dollars'] = yes_ask
+                    row['no_bid_dollars']  = no_bid
+                    row['no_ask_dollars']  = no_ask
+                rows.append(row)
+            return rows
     except Exception as e:
         print(f'failed to collect kalshi rows for {coin}: {type(e).__name__}: {e}')
         return []

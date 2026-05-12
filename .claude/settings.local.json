@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PYTHONIOENCODING=utf-8 python -)",
+      "WebSearch",
+      "WebFetch(domain:docs.kalshi.com)"
+    ]
+  }
+}
