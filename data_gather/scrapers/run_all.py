@@ -7,6 +7,7 @@ MODULES = [
     'data_gather.scrapers.coinbase_ws',
     'data_gather.scrapers.deribit_vol',
     'data_gather.scrapers.kalshi',
+    'data_gather.scrapers.kalshi_ws',
     'data_gather.scrapers.polymarket',
 ]
 
