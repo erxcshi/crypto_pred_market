@@ -35,7 +35,7 @@ ALERT_COOLDOWN_SECONDS = 30 * 60
 # Keyed by table name; falls back to DEFAULT_TABLE_THRESHOLD.
 TABLE_THRESHOLDS: dict[str, int] = {
     # near-continuous streams
-    "coinbase_trades": 180,
+    "coinbase_trades": 600,    # trades are event-driven; overnight gaps of 3-5 min are normal
     "coinbase_quotes": 120,
     "coinbase_l2": 120,
     "binanceus_trades": 3600,   # thin venue — trades can be sparse
