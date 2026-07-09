@@ -93,8 +93,8 @@ class BayesLogRegModel:
             f"Expected {N_FEATURES + 1} cols (intercept + features), "
             f"got {posterior_draws.shape[1]}"
         )
-        self._draws = posterior_draws          # (n_draws, 65)
-        self._means = feature_means            # (64,)
+        self._draws = posterior_draws          # (n_draws, 59)
+        self._means = feature_means            # (58,)
         self._stds = np.where(feature_stds == 0, 1.0, feature_stds)  # avoid /0
 
     # ------------------------------------------------------------------
@@ -117,13 +117,13 @@ class BayesLogRegModel:
         """
         x_raw = np.array([features[name] for name in FEATURE_NAMES], dtype=np.float64)
         x_scaled = (x_raw - self._means) / self._stds
-        x = np.concatenate([[1.0], x_scaled])               # (65,)
+        x = np.concatenate([[1.0], x_scaled])               # (59,)
         p_samples = _sigmoid(self._draws @ x)               # (n_draws,)
         return float(p_samples.mean()), float(p_samples.std())
 
     def predict_batch(self, feature_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """feature_matrix: (n_obs, 64) raw (unscaled) values."""
+        """feature_matrix: (n_obs, 58) raw (unscaled) values."""
         x_scaled = (feature_matrix - self._means) / self._stds
-        X = np.column_stack([np.ones(len(x_scaled)), x_scaled])   # (n, 65)
+        X = np.column_stack([np.ones(len(x_scaled)), x_scaled])   # (n, 59)
         p_samples = _sigmoid(X @ self._draws.T)                    # (n, n_draws)
         return p_samples.mean(axis=1), p_samples.std(axis=1)

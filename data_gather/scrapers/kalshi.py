@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 from datetime import datetime, timezone
 
@@ -6,8 +7,12 @@ import aiohttp
 
 from config import create_data_sink
 
-# SUPABASE 
-POLL_SECONDS = 1
+# Default 5s for the collector: kalshi_ws owns book data, this poller only
+# snapshots market-level fields (volume/OI/liquidity). The trading engine can
+# set KALSHI_POLL_SECONDS=1 + KALSHI_OB_OVERRIDE=1 for fresh quotes, but that
+# burns ~10 req/s of the shared public rate limit.
+POLL_SECONDS = float(os.getenv('KALSHI_POLL_SECONDS', '5'))
+OB_OVERRIDE = os.getenv('KALSHI_OB_OVERRIDE', '0') == '1'
 INSERT_RETRIES = 3
 BATCH_SIZE = 100
 MARKET_FIELDS = [
@@ -86,11 +91,13 @@ async def collect_kalshi_rows(session, coin, curr_time):
             markets = markets_data.get('markets', [])
 
             # /markets yes_bid/yes_ask lag the live book by seconds in thin 15M
-            # crypto markets, baking staleness into any rolling features trained
-            # on this data. Pull each open market's orderbook in parallel and
-            # override the four bid/ask fields with live top-of-book.
+            # crypto markets. When OB_OVERRIDE is on (trading engine), pull each
+            # open market's orderbook in parallel and override the four bid/ask
+            # fields with live top-of-book. Off by default for the collector:
+            # kalshi_ws captures the real book and these fetches are the
+            # biggest consumer of the shared public rate limit.
             async def _ob_or_none(t):
-                return await fetch_orderbook_quotes(session, t) if t else None
+                return await fetch_orderbook_quotes(session, t) if (OB_OVERRIDE and t) else None
 
             tickers = [m.get('ticker') for m in markets]
             ob_quotes = await asyncio.gather(*[_ob_or_none(t) for t in tickers])

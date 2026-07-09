@@ -41,19 +41,35 @@ WS_SIGN_PATH = '/trade-api/ws/v2'
 REST_BASE = 'https://api.elections.kalshi.com/trade-api/v2'
 
 COINS = ['BTC', 'ETH', 'XRP', 'SOL']
+# 15-minute up/down + hourly directional (above/below) series; extend with
+# comma-separated series tickers in KALSHI_EXTRA_SERIES (e.g. KXDOGE15M).
+SERIES_TEMPLATES = ['KX{coin}15M', 'KX{coin}D']
 DISCOVERY_INTERVAL_SECONDS = 60
+RESNAPSHOT_INTERVAL_SECONDS = 300   # REST orderbook snapshot per ticker (replay recovery)
 BATCH_SIZE = 100
 FLUSH_INTERVAL_SECONDS = 5
 RECONNECT_MAX_BACKOFF = 60
 
 DELTAS_TABLE = 'kalshi_orderbook_deltas'
 TRADES_TABLE = 'kalshi_trades'
+TICKER_TABLE = 'kalshi_ticker'
 
 DELTAS_FIELDS = ['curr_time', 'ticker', 'coin', 'market_id', 'ts_ms',
                  'event_type', 'side', 'price', 'delta_size']
 TRADES_FIELDS = ['curr_time', 'ticker', 'coin', 'trade_id', 'ts_ms',
                  'yes_price', 'no_price', 'count', 'taker_outcome_side',
                  'taker_book_side']
+TICKER_FIELDS = ['curr_time', 'ticker', 'coin', 'ts_ms', 'price', 'yes_bid',
+                 'yes_ask', 'volume_delta', 'open_interest_delta',
+                 'dollar_volume_delta']
+
+
+def _series_for_coin(coin: str) -> list[str]:
+    return [tpl.format(coin=coin) for tpl in SERIES_TEMPLATES]
+
+
+def _extra_series() -> list[str]:
+    return [s.strip() for s in os.getenv('KALSHI_EXTRA_SERIES', '').split(',') if s.strip()]
 
 
 def _load_private_key(pem_path: str):
@@ -92,11 +108,14 @@ def _to_int(x, default=None):
 
 
 async def _discover_tickers(session: aiohttp.ClientSession) -> dict[str, str]:
-    """Returns {ticker: coin} for all currently open KX{coin}15M markets."""
+    """Returns {ticker: coin} for all currently open markets across the
+    configured series (15M + hourly directional + KALSHI_EXTRA_SERIES)."""
     result: dict[str, str] = {}
-    for coin in COINS:
+    series_pairs = [(s, coin) for coin in COINS for s in _series_for_coin(coin)]
+    series_pairs += [(s, next((c for c in COINS if c in s), '')) for s in _extra_series()]
+    for series, coin in series_pairs:
         url = f'{REST_BASE}/markets'
-        params = {'series_ticker': f'KX{coin}15M', 'status': 'open', 'limit': 100}
+        params = {'series_ticker': series, 'status': 'open', 'limit': 100}
         try:
             async with session.get(url, params=params,
                                    timeout=aiohttp.ClientTimeout(total=15)) as resp:
@@ -107,7 +126,8 @@ async def _discover_tickers(session: aiohttp.ClientSession) -> dict[str, str]:
                     if t:
                         result[t] = coin
         except Exception as e:
-            print(f'kalshi_ws: discovery failed for {coin}: {type(e).__name__}: {e}')
+            print(f'kalshi_ws: discovery failed for {series}: {type(e).__name__}: {e}')
+        await asyncio.sleep(0.25)   # stay under the public rate limit
     return result
 
 
@@ -157,6 +177,26 @@ def _delta_row(msg: dict, ticker_to_coin: dict[str, str], curr_time: str) -> Opt
         'side': side,
         'price': price,
         'delta_size': delta,
+    }
+
+
+def _ticker_row(msg: dict, ticker_to_coin: dict[str, str], curr_time: str) -> Optional[dict]:
+    ticker = msg.get('market_ticker')
+    if not ticker:
+        return None
+    return {
+        'curr_time': curr_time,
+        'ticker': ticker,
+        'coin': ticker_to_coin.get(ticker, ''),
+        'ts_ms': _to_int(msg.get('ts_ms') or msg.get('ts')),
+        'price': _to_float(msg.get('price_dollars') or msg.get('price')),
+        'yes_bid': _to_float(msg.get('yes_bid_dollars') or msg.get('yes_bid')),
+        'yes_ask': _to_float(msg.get('yes_ask_dollars') or msg.get('yes_ask')),
+        'volume_delta': _to_float(msg.get('volume_delta_fp') or msg.get('volume_delta')),
+        'open_interest_delta': _to_float(msg.get('open_interest_delta_fp')
+                                         or msg.get('open_interest_delta')),
+        'dollar_volume_delta': _to_float(msg.get('dollar_volume_delta_dollars')
+                                         or msg.get('dollar_volume_delta')),
     }
 
 
@@ -261,21 +301,57 @@ async def _periodic_flush_loop(data_sink, buffers: list[_Buffer]) -> None:
                 await buf.flush(data_sink)
 
 
+async def _rest_snapshot_loop(session: aiohttp.ClientSession,
+                              ticker_to_coin: dict[str, str],
+                              deltas: '_Buffer') -> None:
+    """Every RESNAPSHOT_INTERVAL_SECONDS, fetch each active ticker's orderbook
+    via public REST and write event_type='rest_snapshot' rows. Guarantees a
+    recovery point for book replay even if a WS delta was silently missed."""
+    while True:
+        await asyncio.sleep(RESNAPSHOT_INTERVAL_SECONDS)
+        for ticker, coin in list(ticker_to_coin.items()):
+            try:
+                url = f'{REST_BASE}/markets/{ticker}/orderbook'
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    resp.raise_for_status()
+                    ob = (await resp.json()).get('orderbook_fp') or {}
+                curr_time = datetime.now(timezone.utc).isoformat()
+                for side, key in (('yes', 'yes_dollars'), ('no', 'no_dollars')):
+                    for level in ob.get(key) or []:
+                        if len(level) < 2:
+                            continue
+                        deltas.add({
+                            'curr_time': curr_time,
+                            'ticker': ticker,
+                            'coin': coin,
+                            'market_id': None,
+                            'ts_ms': None,
+                            'event_type': 'rest_snapshot',
+                            'side': side,
+                            'price': _to_float(level[0]),
+                            'delta_size': _to_float(level[1]),
+                        })
+            except Exception as e:
+                print(f'kalshi_ws: rest snapshot failed for {ticker}: {type(e).__name__}: {e}')
+            await asyncio.sleep(0.3)   # spread requests, respect rate limit
+
+
 async def _consume(ws, session, ticker_to_coin, data_sink) -> None:
     deltas = _Buffer(DELTAS_TABLE, 'kalshi_orderbook_deltas_test.csv', DELTAS_FIELDS)
     trades = _Buffer(TRADES_TABLE, 'kalshi_trades_test.csv', TRADES_FIELDS)
-    buffers = [deltas, trades]
+    tickers_buf = _Buffer(TICKER_TABLE, 'kalshi_ticker_test.csv', TICKER_FIELDS)
+    buffers = [deltas, trades, tickers_buf]
 
     tickers = sorted(ticker_to_coin.keys())
     if not tickers:
-        raise RuntimeError('kalshi_ws: no open KX*15M markets found at startup')
+        raise RuntimeError('kalshi_ws: no open markets found at startup')
 
     next_cmd_id = [1]
     await ws.send(json.dumps({
         'id': next_cmd_id[0],
         'cmd': 'subscribe',
         'params': {
-            'channels': ['orderbook_delta', 'trade'],
+            'channels': ['orderbook_delta', 'trade', 'ticker_v2'],
             'market_tickers': tickers,
         },
     }))
@@ -286,6 +362,9 @@ async def _consume(ws, session, ticker_to_coin, data_sink) -> None:
         _discovery_loop(session, ticker_to_coin, ws, next_cmd_id, active_sids)
     )
     flush_task = asyncio.create_task(_periodic_flush_loop(data_sink, buffers))
+    snapshot_task = asyncio.create_task(
+        _rest_snapshot_loop(session, ticker_to_coin, deltas)
+    )
 
     try:
         async for raw in ws:
@@ -315,6 +394,10 @@ async def _consume(ws, session, ticker_to_coin, data_sink) -> None:
                 row = _trade_row(msg, ticker_to_coin, curr_time)
                 if row is not None:
                     trades.add(row)
+            elif msg_type in ('ticker_v2', 'ticker'):
+                row = _ticker_row(msg, ticker_to_coin, curr_time)
+                if row is not None:
+                    tickers_buf.add(row)
 
             for buf in buffers:
                 if buf.should_flush():
@@ -322,7 +405,9 @@ async def _consume(ws, session, ticker_to_coin, data_sink) -> None:
     finally:
         discovery_task.cancel()
         flush_task.cancel()
-        await asyncio.gather(discovery_task, flush_task, return_exceptions=True)
+        snapshot_task.cancel()
+        await asyncio.gather(discovery_task, flush_task, snapshot_task,
+                             return_exceptions=True)
         for buf in buffers:
             await buf.flush(data_sink)
 

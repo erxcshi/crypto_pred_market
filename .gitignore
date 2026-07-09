@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 .env
+.DS_Store
 
 # Secrets
 *.pem
@@ -11,8 +12,13 @@ __pycache__/
 # Trading logs / artifacts (large, runtime-generated)
 trading/pnl_log.csv
 trading/feature_log.csv
+trading/feature_log_bayes.csv
 trading/model_artifacts.npz
 
 data_gather/raw_data/*.csv
 data_gather/filtered_data/*.csv
 data_gather/final_data/*.csv
+
+# Parquet collector output (runtime-generated, can be huge)
+data/
+collector.log*

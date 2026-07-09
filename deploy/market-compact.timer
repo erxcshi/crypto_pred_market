@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily parquet compaction at 00:15 UTC
+
+[Timer]
+OnCalendar=*-*-* 00:15:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

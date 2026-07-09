@@ -1,0 +1,26 @@
+# systemd unit for the market data collector (Linux VPS).
+# Install:
+#   sudo cp deploy/market-collector.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now market-collector
+# Logs: journalctl -u market-collector -f
+[Unit]
+Description=crypto_pred_market data collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust user + paths to the VPS checkout.
+User=ubuntu
+WorkingDirectory=/home/ubuntu/crypto_pred_market
+Environment=DATA_SINK_MODE=parquet
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/crypto_pred_market/.venv/bin/python -m data_gather.scrapers.run_all
+Restart=always
+RestartSec=5
+# SIGINT -> KeyboardInterrupt -> CancelledError path -> buffers flush cleanly.
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+# One-shot compaction run, scheduled by market-compact.timer.
+# Install both:
+#   sudo cp deploy/market-compact.* /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now market-compact.timer
+[Unit]
+Description=crypto_pred_market daily parquet compaction
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/crypto_pred_market
+ExecStart=/home/ubuntu/crypto_pred_market/.venv/bin/python -m data_gather.compact
+# After off-box backup exists, bound local disk with e.g.:
+# ExecStart=/home/ubuntu/crypto_pred_market/.venv/bin/python -m data_gather.compact --retention-days 60

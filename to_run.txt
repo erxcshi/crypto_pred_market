@@ -1,9 +1,24 @@
 run from inside the crypto_pred_market repo root!!
-source .venv/bin/activate
-python -m build_features.feature
+(Windows: .venv\Scripts\activate | POSIX: source .venv/bin/activate)
 
-scrape from apis and ws: 
-python -m data_gather.scrapers.run_all
+COLLECTOR (the main thing — writes local parquet to data/):
+DATA_SINK_MODE=parquet python -m data_gather.scrapers.run_all
+  - or set DATA_SINK_MODE=parquet in .env (see .env.example)
+  - 24/7 setup: deploy/windows_setup.md (NSSM) or deploy/*.service (Linux)
 
-collect data from supabase: 
-python -m data_gather.postgres_extract
+daily compaction (small files -> one per day, scheduled or manual):
+python -m data_gather.compact
+
+read collected data:
+  import polars as pl
+  pl.scan_parquet('data/<table>/**/*.parquet').collect()
+
+single scrapers (debugging):
+python -m data_gather.scrapers.polymarket_ws     # etc.
+
+LEGACY (Supabase-era pipeline):
+python -m data_gather.postgres_extract    # pull old tables from supabase
+python -m data_gather.filter              # build feature table from raw csvs
+
+trading engine (paper mode):
+python -m trading.engine --dry-run

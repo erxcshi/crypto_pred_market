@@ -479,59 +479,25 @@ def build_btc_feature_tables(
 
     # return combined, btc_kalshi, btc_polymarket
     return combined
-    
-# class build_main_df():
-#     def __init__(self, trades: pl.DataFrame, options: pl.DataFrame, kalshi: pl.DataFrame, polymarket: pl.DataFrame):
-#         self.trades = trades
-#         self.options = options
-#         self.kalshi = kalshi
-#         self.polymarket = polymarket
-    
-#     def to_datetime(table: pl.DataFrame, cols: list) -> pl.DataFrame:
-#         for col in cols: 
-#             table = table.with_columns(
-#                 pl.col(col)
-#                 .str.to_datetime(format="%Y-%m-%d %H:%M:%S%.f%#z", strict=False)
-#                 .alias(col)
-#             )
-#         return table
 
-#     def normalize_trades(self):
-#         btc_trades = self.to_datetime(self.btc_trades, ['curr_time', 'trade_time'])
-#         btc_trades = btc_trades.with_columns(pl.col("product_id").str.replace("-USD", "").alias("coin"))
-#         btc_trades = btc_trades.drop('product_id')
-#         btc_trades = btc_trades.with_columns(((pl.col("price") * pl.col("size")) * pl.when(pl.col("side") == "buy").then(1).otherwise(-1)).alias("weighted"))
 
-#     def normalize_options(self):
-#         btc_eth_options = self.to_datetime(self.btc_eth_options, ['curr_time', 'expiry_datetime'])
-    
-#     def normalize_kalshi(self):
-#         kalshi = self.to_datetime(self.kalshi, ['open_time', 'curr_time', 'close_time'])
-#         first_event_time, last_event_time = kalshi.select(pl.col('open_time').min(), pl.col('close_time').max()).row(0)
-#         kalshi = kalshi.filter(~((pl.col("open_time") == first_event_time) | (pl.col("close_time") == last_event_time)))
-#         kalshi = kalshi.with_columns((pl.col('close_time') - pl.col('curr_time')).dt.total_seconds().alias('time_to_close'))
-#         kalshi = kalshi.with_columns(pl.col("curr_time").shift(1).over("coin").alias("prev_time")
-#                              ).with_columns((pl.col("curr_time") - pl.col("prev_time")).dt.total_seconds().alias("time_diff_seconds"))
-#         kalshi = kalshi.filter(pl.col("time_diff_seconds").is_between(0.9, 1.1))
-
-        
-#     def normalize_polymarket(self):
-#         self.all_coins_polymarket = self.to_datetime(self.all_coins_polymarket, ['curr_time', 'end_date'])
-
-#     def build_main_df(self):
-#         pass
 if __name__ == "__main__":
-    # trades = pl.scan_csv(raw_data_dir / 'coinbase_trades.csv').collect()
-    # options = pl.scan_csv(raw_data_dir / 'deribit_option_vols.csv').collect()
-    # kalshi = pl.scan_csv(raw_data_dir / 'kalshi_markets.csv').collect()
-    # polymarket = pl.scan_csv(raw_data_dir / 'polymarket_markets.csv').collect()
-    # filterer = filter_data(trades=trades, options=options, kalshi=kalshi, polymarket=polymarket)
-    # btc_trades = filterer.clean_trades(['BTC', 'ETH', 'XRP', 'SOL']).write_csv(filtered_data_dir / 'all_trades.csv')
+    coins = ["BTC", "ETH", "XRP", "SOL"]
 
-    
-    # btc_eth_options = filterer.clean_options(['BTC', 'ETH']).write_csv(filtered_data_dir / 'btc_eth_options.csv')
-    # all_coins_kalshi = filterer.clean_kalshi(['BTC', 'ETH', 'XRP', 'SOL']).write_csv(filtered_data_dir / 'all_kalshi.csv')
-    # all_coins_polymarket = filterer.clean_polymarket(['BTC', 'ETH', 'XRP', 'SOL']).write_csv(filtered_data_dir / 'all_polymarket.csv')
+    # Step 1: raw_data/*.csv -> filtered_data/*.csv
+    filterer = filter_data(
+        trades=pl.read_csv(raw_data_dir / "coinbase_trades.csv"),
+        options=pl.read_csv(raw_data_dir / "deribit_option_vols.csv"),
+        kalshi=pl.read_csv(raw_data_dir / "kalshi_markets.csv"),
+        polymarket=pl.read_csv(raw_data_dir / "polymarket_markets.csv"),
+    )
+    filtered_data_dir.mkdir(parents=True, exist_ok=True)
+    filterer.clean_trades(coins).write_csv(filtered_data_dir / "all_trades.csv")
+    filterer.clean_options(["BTC", "ETH"]).write_csv(filtered_data_dir / "btc_eth_options.csv")
+    filterer.clean_kalshi(coins).write_csv(filtered_data_dir / "all_kalshi.csv")
+    filterer.clean_polymarket(coins).write_csv(filtered_data_dir / "all_polymarket.csv")
 
+    # Step 2: filtered_data -> final_data/final_data.csv (BTC feature table)
+    final_data_dir.mkdir(parents=True, exist_ok=True)
     combined = build_btc_feature_tables()
-    combined.write_csv(r'C:\Users\erics\courses\gradml1\crypto_pred_market\data_gather\final_data\final_data.csv')
+    combined.write_csv(final_data_dir / "final_data.csv")

@@ -2,18 +2,21 @@ import os
 import csv
 from pathlib import Path
 from dotenv import load_dotenv
-from supabase import Client, create_client
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 load_dotenv(PROJECT_ROOT / '.env')
 
 DATA_SINK_TEST = 'test'
+DATA_SINK_PARQUET = 'parquet'
 
 
-def create_supabase_client() -> Client:
+def create_supabase_client():
+    # Lazy import: parquet/test modes must not require supabase to be installed.
+    from supabase import create_client
+
     url = os.getenv('SUPABASE_URL')
     key = os.getenv('SUPABASE_KEY')
-    
+
     return create_client(url, key)
 
 
@@ -50,5 +53,13 @@ class DataSink:
             writer.writerows(rows_data)
 
 
-def create_data_sink(mode: str | None = None) -> DataSink:
+def create_data_sink(mode: str | None = None):
+    """Factory used by every scraper. Mode resolution:
+    explicit argument > DATA_SINK_MODE env var > 'actual' (Supabase).
+    'parquet' -> local hourly parquet files (see data_gather/parquet_sink.py).
+    """
+    mode = mode or os.getenv('DATA_SINK_MODE') or 'actual'
+    if mode == DATA_SINK_PARQUET:
+        from data_gather.parquet_sink import ParquetDataSink  # lazy: pyarrow only in parquet mode
+        return ParquetDataSink()
     return DataSink(mode=mode)
