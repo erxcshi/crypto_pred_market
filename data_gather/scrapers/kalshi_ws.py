@@ -93,6 +93,22 @@ def _sign_headers(key_id: str, private_key, method: str, path: str) -> dict:
     }
 
 
+def _coin_of(ticker: Optional[str], ticker_to_coin: dict[str, str]) -> str:
+    """Map ticker -> coin, falling back to parsing the series prefix so events
+    for tickers that raced in/out of the discovery map still get labeled
+    (e.g. 'KXBTC15M-...' / 'KXETHD-...' -> 'BTC' / 'ETH')."""
+    if not ticker:
+        return ''
+    coin = ticker_to_coin.get(ticker)
+    if coin:
+        return coin
+    prefix = ticker.split('-', 1)[0]
+    for c in COINS:
+        if c in prefix:
+            return c
+    return ''
+
+
 def _to_float(x, default=None):
     try:
         return float(x)
@@ -133,7 +149,7 @@ async def _discover_tickers(session: aiohttp.ClientSession) -> dict[str, str]:
 
 def _snapshot_rows(msg: dict, ticker_to_coin: dict[str, str], curr_time: str) -> list[dict]:
     ticker = msg.get('market_ticker')
-    coin = ticker_to_coin.get(ticker, '')
+    coin = _coin_of(ticker, ticker_to_coin)
     market_id = msg.get('market_id')
     ts_ms = _to_int(msg.get('ts_ms'))
 
@@ -170,7 +186,7 @@ def _delta_row(msg: dict, ticker_to_coin: dict[str, str], curr_time: str) -> Opt
     return {
         'curr_time': curr_time,
         'ticker': ticker,
-        'coin': ticker_to_coin.get(ticker, ''),
+        'coin': _coin_of(ticker, ticker_to_coin),
         'market_id': msg.get('market_id'),
         'ts_ms': _to_int(msg.get('ts_ms')),
         'event_type': 'delta',
@@ -187,7 +203,7 @@ def _ticker_row(msg: dict, ticker_to_coin: dict[str, str], curr_time: str) -> Op
     return {
         'curr_time': curr_time,
         'ticker': ticker,
-        'coin': ticker_to_coin.get(ticker, ''),
+        'coin': _coin_of(ticker, ticker_to_coin),
         'ts_ms': _to_int(msg.get('ts_ms') or msg.get('ts')),
         'price': _to_float(msg.get('price_dollars') or msg.get('price')),
         'yes_bid': _to_float(msg.get('yes_bid_dollars') or msg.get('yes_bid')),
@@ -208,7 +224,7 @@ def _trade_row(msg: dict, ticker_to_coin: dict[str, str], curr_time: str) -> Opt
     return {
         'curr_time': curr_time,
         'ticker': ticker,
-        'coin': ticker_to_coin.get(ticker, ''),
+        'coin': _coin_of(ticker, ticker_to_coin),
         'trade_id': trade_id,
         'ts_ms': _to_int(msg.get('ts_ms')),
         'yes_price': _to_float(msg.get('yes_price_dollars')),
@@ -261,34 +277,38 @@ async def _discovery_loop(session: aiohttp.ClientSession, ticker_to_coin: dict[s
             new_tickers = sorted(set(fresh) - set(ticker_to_coin))
             stale_tickers = sorted(set(ticker_to_coin) - set(fresh))
 
+            # The API requires exactly ONE sid per update_subscription command,
+            # so send one command per active subscription.
             if new_tickers and active_sids:
                 ticker_to_coin.update({t: fresh[t] for t in new_tickers})
-                next_cmd_id[0] += 1
-                await ws.send(json.dumps({
-                    'id': next_cmd_id[0],
-                    'cmd': 'update_subscription',
-                    'params': {
-                        'sids': list(active_sids),
-                        'market_tickers': new_tickers,
-                        'action': 'add_markets',
-                    },
-                }))
-                print(f'kalshi_ws: +{len(new_tickers)} tickers: {new_tickers}')
+                for sid in list(active_sids):
+                    next_cmd_id[0] += 1
+                    await ws.send(json.dumps({
+                        'id': next_cmd_id[0],
+                        'cmd': 'update_subscription',
+                        'params': {
+                            'sids': [sid],
+                            'market_tickers': new_tickers,
+                            'action': 'add_markets',
+                        },
+                    }))
+                print(f'kalshi_ws: +{len(new_tickers)} tickers')
 
             if stale_tickers and active_sids:
                 for t in stale_tickers:
                     ticker_to_coin.pop(t, None)
-                next_cmd_id[0] += 1
-                await ws.send(json.dumps({
-                    'id': next_cmd_id[0],
-                    'cmd': 'update_subscription',
-                    'params': {
-                        'sids': list(active_sids),
-                        'market_tickers': stale_tickers,
-                        'action': 'delete_markets',
-                    },
-                }))
-                print(f'kalshi_ws: -{len(stale_tickers)} tickers: {stale_tickers}')
+                for sid in list(active_sids):
+                    next_cmd_id[0] += 1
+                    await ws.send(json.dumps({
+                        'id': next_cmd_id[0],
+                        'cmd': 'update_subscription',
+                        'params': {
+                            'sids': [sid],
+                            'market_tickers': stale_tickers,
+                            'action': 'delete_markets',
+                        },
+                    }))
+                print(f'kalshi_ws: -{len(stale_tickers)} tickers')
         except Exception as e:
             print(f'kalshi_ws: discovery cycle failed: {type(e).__name__}: {e}')
 
@@ -351,7 +371,8 @@ async def _consume(ws, session, ticker_to_coin, data_sink) -> None:
         'id': next_cmd_id[0],
         'cmd': 'subscribe',
         'params': {
-            'channels': ['orderbook_delta', 'trade', 'ticker_v2'],
+            # NB: the WS channel is named 'ticker' (server rejects 'ticker_v2').
+            'channels': ['orderbook_delta', 'trade', 'ticker'],
             'market_tickers': tickers,
         },
     }))
