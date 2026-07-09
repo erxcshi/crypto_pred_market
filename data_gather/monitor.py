@@ -74,29 +74,35 @@ def _parse_iso(ts: str) -> datetime | None:
         return None
 
 
-def check_status(status_dir: Path, now: datetime) -> list[str]:
-    """Returns a list of alert strings for everything currently unhealthy."""
-    alerts: list[str] = []
+def check_status(status_dir: Path, now: datetime) -> list[tuple[str, str]]:
+    """Returns [(key, message)] for everything currently unhealthy.
+
+    key is STABLE across sweeps (no ages/timestamps in it) — it's what dedup,
+    cooldown, and recovery detection are keyed on. message carries the
+    human-readable details.
+    """
+    alerts: list[tuple[str, str]] = []
     files = sorted(status_dir.glob("*.json")) if status_dir.exists() else []
     if not files:
-        return [f"no status files in {status_dir} — is any collector running?"]
+        return [("no-status-files", f"no status files in {status_dir} — is any collector running?")]
 
     for f in files:
         try:
             payload = json.loads(f.read_text())
         except Exception as e:  # noqa: BLE001
-            alerts.append(f"{f.name}: unreadable status file ({type(e).__name__})")
+            alerts.append((f"{f.name}:unreadable", f"{f.name}: unreadable status file ({type(e).__name__})"))
             continue
 
         stream = payload.get("stream_name", f.stem)
         written_at = _parse_iso(payload.get("written_at", ""))
         if written_at is None or (now - written_at).total_seconds() > STREAM_HEARTBEAT_THRESHOLD:
             age = "unknown" if written_at is None else f"{(now - written_at).total_seconds():.0f}s"
-            alerts.append(f"{stream}: heartbeat stale ({age} old) — process dead or wedged?")
+            alerts.append((f"{stream}:heartbeat",
+                           f"{stream}: heartbeat stale ({age} old) — process dead or wedged?"))
             continue  # process-level alert supersedes table-level ones
 
         if payload.get("last_error"):
-            alerts.append(f"{stream}: write error: {payload['last_error']}")
+            alerts.append((f"{stream}:write-error", f"{stream}: write error: {payload['last_error']}"))
 
         for table, stats in (payload.get("tables") or {}).items():
             last_row = _parse_iso(stats.get("last_row_written_at", ""))
@@ -105,9 +111,8 @@ def check_status(status_dir: Path, now: datetime) -> list[str]:
                 continue
             silence = (now - last_row).total_seconds()
             if silence > threshold:
-                alerts.append(
-                    f"{stream}/{table}: no rows for {silence:.0f}s (threshold {threshold}s)"
-                )
+                alerts.append((f"{stream}/{table}:stale",
+                               f"{stream}/{table}: no rows for {silence:.0f}s (threshold {threshold}s)"))
     return alerts
 
 
@@ -135,17 +140,18 @@ async def watch(status_dir: Path = STATUS_DIR, interval: int = CHECK_INTERVAL_SE
         while True:
             now = datetime.now(timezone.utc)
             alerts = check_status(status_dir, now)
-            current = set(alerts)
+            current_keys = {key for key, _ in alerts}
 
-            for recovered in active - current:
-                print(f"MONITOR RECOVERED: {recovered}")
-            active = current
+            # Recovery = a stable key that was alerting and no longer is.
+            for recovered_key in active - current_keys:
+                print(f"MONITOR RECOVERED: {recovered_key}")
+            active = current_keys
 
             mono = time.monotonic()
-            for alert in alerts:
-                if mono - last_alert_time.get(alert, -1e12) >= ALERT_COOLDOWN_SECONDS:
-                    last_alert_time[alert] = mono
-                    await send_alert(session, alert)
+            for key, message in alerts:
+                if mono - last_alert_time.get(key, -1e12) >= ALERT_COOLDOWN_SECONDS:
+                    last_alert_time[key] = mono
+                    await send_alert(session, message)
 
             if not alerts:
                 print(f"monitor: all streams healthy ({now.strftime('%H:%M:%S')} UTC)")

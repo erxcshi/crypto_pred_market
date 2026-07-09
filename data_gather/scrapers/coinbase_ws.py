@@ -118,18 +118,22 @@ async def _flush_loop(data_sink, buffers):
                 await buf.flush(data_sink)
 
 
-def _check_sequence_gap(last_seq: dict, product_id, sequence):
-    """Returns gap size (int) if sequence skipped ahead, else 0."""
-    seq = _to_int(sequence)
-    if seq is None or product_id is None:
+def _check_trade_id_gap(last_trade_id: dict, product_id, trade_id):
+    """Returns gap size if trade_id skipped ahead, else 0.
+
+    NOTE: 'sequence' is feed-wide (counts every order event), so gaps in it
+    are EXPECTED when only matches/ticker are subscribed — do not use it for
+    integrity checks. trade_id is dense per product on the matches channel,
+    so a jump there means actually-missed trades (log it; reconnecting can't
+    recover them anyway)."""
+    tid = _to_int(trade_id)
+    if tid is None or product_id is None:
         return 0
-    prev = last_seq.get(product_id)
-    last_seq[product_id] = seq
-    if prev is None:
+    prev = last_trade_id.get(product_id)
+    last_trade_id[product_id] = tid
+    if prev is None or tid <= prev:
         return 0
-    if seq <= prev:
-        return 0
-    return seq - prev - 1
+    return tid - prev - 1
 
 
 async def stream_coinbase_trades(data_sink=None):
@@ -141,7 +145,7 @@ async def stream_coinbase_trades(data_sink=None):
     buffers = [trades, quotes]
 
     while True:
-        last_seq: dict[str, int] = {}
+        last_trade_id: dict[str, int] = {}
         flush_task = None
         try:
             print(f'coinbase_ws: connecting to {WS_URL}')
@@ -160,13 +164,14 @@ async def stream_coinbase_trades(data_sink=None):
 
                     msg_type = msg.get('type')
 
-                    if msg_type in ('match', 'ticker'):
-                        gap = _check_sequence_gap(last_seq, msg.get('product_id'),
-                                                  msg.get('sequence'))
+                    if msg_type == 'match':
+                        gap = _check_trade_id_gap(last_trade_id, msg.get('product_id'),
+                                                  msg.get('trade_id'))
                         if gap > 0:
-                            print(f'coinbase_ws: sequence gap {gap} on '
-                                  f'{msg.get("product_id")} ({msg_type}) — resubscribing')
-                            break
+                            # Log-only: the trades are already gone; a reconnect
+                            # can't recover them and just loses more data.
+                            print(f'coinbase_ws: missed {gap} trades on '
+                                  f'{msg.get("product_id")} (trade_id gap)')
 
                     if msg_type == 'match':
                         trades.add(build_trade_row(msg))

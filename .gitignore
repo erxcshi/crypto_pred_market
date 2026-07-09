@@ -21,4 +21,5 @@ data_gather/final_data/*.csv
 
 # Parquet collector output (runtime-generated, can be huge)
 data/
-collector.log*
+collector*.log
+collector.err.log

@@ -353,7 +353,9 @@ async def _rest_snapshot_loop(session: aiohttp.ClientSession,
                         })
             except Exception as e:
                 print(f'kalshi_ws: rest snapshot failed for {ticker}: {type(e).__name__}: {e}')
-            await asyncio.sleep(0.3)   # spread requests, respect rate limit
+            # 0.6s gap: with ~400 tickers (15M + hourly ladders) a full sweep
+            # takes ~4 min at ~1.7 req/s. 0.3s caused shared-IP 429 storms.
+            await asyncio.sleep(0.6)
 
 
 async def _consume(ws, session, ticker_to_coin, data_sink) -> None:
