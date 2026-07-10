@@ -60,8 +60,9 @@ TRADES_FIELDS = ['curr_time', 'ticker', 'coin', 'trade_id', 'ts_ms',
                  'yes_price', 'no_price', 'count', 'taker_outcome_side',
                  'taker_book_side']
 TICKER_FIELDS = ['curr_time', 'ticker', 'coin', 'ts_ms', 'price', 'yes_bid',
-                 'yes_ask', 'volume_delta', 'open_interest_delta',
-                 'dollar_volume_delta']
+                 'yes_ask', 'yes_bid_size', 'yes_ask_size', 'last_trade_size',
+                 'volume', 'open_interest', 'dollar_volume',
+                 'dollar_open_interest']
 
 
 def _series_for_coin(coin: str) -> list[str]:
@@ -197,6 +198,10 @@ def _delta_row(msg: dict, ticker_to_coin: dict[str, str], curr_time: str) -> Opt
 
 
 def _ticker_row(msg: dict, ticker_to_coin: dict[str, str], curr_time: str) -> Optional[dict]:
+    """Field names per the AsyncAPI spec (docs.kalshi.com/asyncapi.yaml):
+    price_dollars, yes_bid_dollars, yes_ask_dollars, yes_bid_size_fp,
+    yes_ask_size_fp, last_trade_size_fp, volume_fp, open_interest_fp,
+    dollar_volume, dollar_open_interest, ts_ms. volume/OI are cumulative."""
     ticker = msg.get('market_ticker')
     if not ticker:
         return None
@@ -208,11 +213,13 @@ def _ticker_row(msg: dict, ticker_to_coin: dict[str, str], curr_time: str) -> Op
         'price': _to_float(msg.get('price_dollars') or msg.get('price')),
         'yes_bid': _to_float(msg.get('yes_bid_dollars') or msg.get('yes_bid')),
         'yes_ask': _to_float(msg.get('yes_ask_dollars') or msg.get('yes_ask')),
-        'volume_delta': _to_float(msg.get('volume_delta_fp') or msg.get('volume_delta')),
-        'open_interest_delta': _to_float(msg.get('open_interest_delta_fp')
-                                         or msg.get('open_interest_delta')),
-        'dollar_volume_delta': _to_float(msg.get('dollar_volume_delta_dollars')
-                                         or msg.get('dollar_volume_delta')),
+        'yes_bid_size': _to_float(msg.get('yes_bid_size_fp') or msg.get('yes_bid_size')),
+        'yes_ask_size': _to_float(msg.get('yes_ask_size_fp') or msg.get('yes_ask_size')),
+        'last_trade_size': _to_float(msg.get('last_trade_size_fp') or msg.get('last_trade_size')),
+        'volume': _to_float(msg.get('volume_fp') or msg.get('volume')),
+        'open_interest': _to_float(msg.get('open_interest_fp') or msg.get('open_interest')),
+        'dollar_volume': _to_float(msg.get('dollar_volume')),
+        'dollar_open_interest': _to_float(msg.get('dollar_open_interest')),
     }
 
 

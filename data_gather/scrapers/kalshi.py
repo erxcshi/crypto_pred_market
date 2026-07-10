@@ -40,7 +40,12 @@ def build_market_row(coin, curr_time, market):
     }
 
     for field in MARKET_FIELDS:
+        # Kalshi migrated several numeric fields to *_fp string variants
+        # (e.g. open_interest -> open_interest_fp); prefer the plain field,
+        # fall back to the _fp one so these columns stop being all-null.
         row_data[field] = market.get(field)
+        if row_data[field] is None and not field.endswith('_fp'):
+            row_data[field] = market.get(f'{field}_fp')
 
     return row_data
 

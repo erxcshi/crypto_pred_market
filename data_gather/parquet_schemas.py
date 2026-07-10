@@ -111,6 +111,8 @@ SCHEMAS: dict[str, pa.Schema] = {
         ("taker_outcome_side", _S),
         ("taker_book_side", _S),
     ]),
+    # Fields per the AsyncAPI spec: volume/open_interest are CUMULATIVE
+    # (volume_fp / open_interest_fp); there are no *_delta fields.
     "kalshi_ticker": pa.schema([
         ("curr_time", _S),
         ("ticker", _S),
@@ -119,9 +121,13 @@ SCHEMAS: dict[str, pa.Schema] = {
         ("price", _F),
         ("yes_bid", _F),
         ("yes_ask", _F),
-        ("volume_delta", _F),
-        ("open_interest_delta", _F),
-        ("dollar_volume_delta", _F),
+        ("yes_bid_size", _F),
+        ("yes_ask_size", _F),
+        ("last_trade_size", _F),
+        ("volume", _F),
+        ("open_interest", _F),
+        ("dollar_volume", _F),
+        ("dollar_open_interest", _F),
     ]),
     # Ground-truth labels: settlement record fetched after market close.
     "kalshi_settlements": pa.schema([

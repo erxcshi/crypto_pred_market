@@ -66,8 +66,9 @@ def _row(market: dict, coin: str, series: str) -> dict:
         "settlement_value_dollars": (market.get("settlement_value_dollars")
                                      or market.get("settlement_value")),
         "last_price_dollars": market.get("last_price_dollars"),
-        "volume": market.get("volume"),
-        "open_interest": market.get("open_interest"),
+        # Kalshi migrated these to *_fp string fields.
+        "volume": market.get("volume") or market.get("volume_fp"),
+        "open_interest": market.get("open_interest") or market.get("open_interest_fp"),
     }
 
 
