@@ -57,12 +57,19 @@ TABLE_THRESHOLDS: dict[str, int] = {
     "deribit_perp": 300,
     "deribit_index": 300,
     "kalshi_settlements": 2 * 3600,
-    # equities: market hours only — long threshold to avoid overnight noise
-    "alpaca_trades": 12 * 3600,
-    "alpaca_quotes": 12 * 3600,
-    "vix_quotes": 12 * 3600,
 }
 DEFAULT_TABLE_THRESHOLD = 900
+
+# Equity feeds only produce rows while US equities trade, so a flat threshold
+# either false-alarms every night/weekend (overnight gap ~15h, weekend ~63h)
+# or reacts uselessly slowly to real weekday outages. Instead, only check
+# these tables during 14:30-20:00 UTC Mon-Fri — the intersection of EST and
+# EDT regular sessions, so the market is open in either DST regime. Market
+# holidays cost a few spurious warnings per year; accepted.
+EQUITY_TABLES = {"alpaca_trades", "alpaca_quotes", "vix_quotes"}
+EQUITY_SESSION_OPEN_UTC = (14, 30)
+EQUITY_SESSION_CLOSE_UTC = (20, 0)
+EQUITY_STALE_THRESHOLD = 1800
 # Seconds without a heartbeat write before the whole STREAM (process) is stale.
 STREAM_HEARTBEAT_THRESHOLD = 300
 
@@ -72,6 +79,17 @@ def _parse_iso(ts: str) -> datetime | None:
         return datetime.fromisoformat(ts)
     except (TypeError, ValueError):
         return None
+
+
+def _equity_session_open(now: datetime) -> datetime | None:
+    """Start of today's session if US equities are trading at `now`, else None."""
+    if now.weekday() >= 5:
+        return None
+    open_dt = now.replace(hour=EQUITY_SESSION_OPEN_UTC[0], minute=EQUITY_SESSION_OPEN_UTC[1],
+                          second=0, microsecond=0)
+    close_dt = now.replace(hour=EQUITY_SESSION_CLOSE_UTC[0], minute=EQUITY_SESSION_CLOSE_UTC[1],
+                           second=0, microsecond=0)
+    return open_dt if open_dt <= now <= close_dt else None
 
 
 def check_status(status_dir: Path, now: datetime) -> list[tuple[str, str]]:
@@ -106,10 +124,19 @@ def check_status(status_dir: Path, now: datetime) -> list[tuple[str, str]]:
 
         for table, stats in (payload.get("tables") or {}).items():
             last_row = _parse_iso(stats.get("last_row_written_at", ""))
-            threshold = TABLE_THRESHOLDS.get(table, DEFAULT_TABLE_THRESHOLD)
             if last_row is None:
                 continue
-            silence = (now - last_row).total_seconds()
+            if table in EQUITY_TABLES:
+                session_open = _equity_session_open(now)
+                if session_open is None:
+                    continue  # market closed — silence is expected
+                # Measure from session open so the first sweeps after open
+                # don't fire on the (normal) overnight gap.
+                threshold = EQUITY_STALE_THRESHOLD
+                silence = (now - max(last_row, session_open)).total_seconds()
+            else:
+                threshold = TABLE_THRESHOLDS.get(table, DEFAULT_TABLE_THRESHOLD)
+                silence = (now - last_row).total_seconds()
             if silence > threshold:
                 alerts.append((f"{stream}/{table}:stale",
                                f"{stream}/{table}: no rows for {silence:.0f}s (threshold {threshold}s)"))
