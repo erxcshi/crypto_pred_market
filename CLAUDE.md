@@ -4,11 +4,12 @@
 
 <!-- COLLECTOR-HEALTH:START -->
 ## 🩺 Collector health (auto-checked hourly — this block is replaced whole each hour; don't hand-edit)
-**Last check: 2026-08-29 02:40 local / 06:40 UTC — ✅ HEALTHY**
-- Root `run_all` **PID 32148**, up since 2026-08-07 22:25 local (**~21.2 days continuous**, no restarts). **12/12** child scrapers alive (13 `data_gather` procs incl. root).
-- All 11 table heartbeats fresh (max age 58s in `data/_status/*.json`). `collector.err.log` empty (0 B, nothing since launch). `collector.log` growing (~1.18 GB, last write 02:39:56).
-- Hourly auto-check loop `70fc8ba0` (re-armed 08-25, fires :23; session-only, 7-day expiry — would lapse ~09-01 unless the Claude session stays alive).
-- Recent checks (newest first): `08-29 02:39–40 ✅` · `08-25 14:47 ✅ (loop re-armed)` · `08-07 22:57 🔄 restarted` · `07-28 17:44 ✅` · `16:35–39 ✅` · `12:21 ✅` · `11:03 ✅` · `07-27 23:50 ✅`.
+**Last check: 2026-08-31 02:30 local / 06:30 UTC — 🔄 RESTARTED (now HEALTHY)**
+- Collector was **DOWN** — died ~08-30 21:20 UTC (17:20 local) after ~23 days up as PID 32148; 0 processes, heartbeats ~9.2h stale. Caught by this hourly check and relaunched. Root `run_all` now **PID 27288**, up since 2026-08-31 02:30 local. **12/12** child scrapers alive (13 `data_gather` procs incl. root).
+- All 11 table heartbeats fresh (max age 8s in `data/_status/*.json`). `collector.err.log` empty (0 B). `collector.log` rotated to `.log.1` (was 1.25 GB), growing fresh.
+- Outage while down: **2026-08-30 21:20 → 2026-08-31 06:30 UTC (~9h10m, all venues)** — logged under "Known data gaps".
+- Hourly auto-check loop `70fc8ba0` (re-armed 08-25, fires :23; session-only, 7-day expiry ~09-01).
+- Recent checks (newest first): `08-31 02:30 🔄 restarted` · `08-29 02:39–40 ✅` · `08-25 14:47 ✅ (loop re-armed)` · `08-07 22:57 🔄 restarted` · `07-28 17:44 ✅` · `16:35–39 ✅` · `12:21 ✅` · `11:03 ✅`.
 <!-- COLLECTOR-HEALTH:END -->
 
 ## What this is
@@ -92,6 +93,11 @@ Everything below is recoverable from git history (pre-cleanup commit; the deleti
 - **2026-08-08 01:19 → 02:25 UTC (~1h06m, all venues)** — root collector (PID 33972, up continuously since
   the 07-27 restart) died ~01:19 UTC; noticed on a user-requested restart and relaunched 02:25 UTC as PID
   32148. Within settlements 24h lookback, so labels self-heal; book/trade data in the window is lost.
+- **2026-08-30 21:20 → 2026-08-31 06:30 UTC (~9h10m, all venues)** — root collector (PID 32148, up ~23 days
+  continuously since the 08-07 restart) died ~21:20 UTC 08-30 (`collector.log` last write 17:20 local, no
+  crash trace, `collector.err.log` empty → likely OS/kill event). Caught by the hourly auto-check and
+  relaunched 06:30 UTC 08-31 as PID 27288. Within settlements 24h lookback, so labels self-heal; book/trade
+  data in the window is lost.
 - Settlement labels self-heal on restart within 24h (kalshi_settlements polls with a 24h lookback);
   book/trade data in a gap is lost. Root cause of the big three: **no service install** — NSSM setup per
   `deploy/windows_setup.md` is the standing top ops priority.
