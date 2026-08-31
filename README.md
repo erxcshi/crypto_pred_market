@@ -1,10 +1,12 @@
 # crypto_pred_market
 
-Probability calibration and trading system for crypto **15-minute** prediction markets.
+Data collection and trading system for crypto **15-minute** prediction markets (Kalshi `KX{coin}15M`
+up/down binaries).
 
-The system scrapes crypto spot and prediction-market data, builds a per-second feature table, trains a
-logistic / Bayesian-logistic model to estimate P(YES) for Kalshi `KX{coin}15M` up/down markets, and runs a
-live async engine that trades when the model's probability diverges from the market price.
+The system runs a 24/7 collector that captures raw spot + prediction-market events (Kalshi, Polymarket,
+Coinbase, Kraken, Bitstamp, Binance.US, Deribit, Alpaca) into local hourly parquet. A fair-value model and
+trading engine are being rebuilt from scratch on top of this data — the v1 model was removed after an audit
+showed no edge over the market price (see `CLAUDE.md`).
 
 Coins: **BTC** (traded) with **ETH/XRP/SOL** as cross-asset features.
 
@@ -16,30 +18,26 @@ Use Python `3.13`.
 python3.13 -m venv .venv
 source .venv/bin/activate           # Windows: .venv\Scripts\activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt -r requirements-collector.txt
 ```
 
-Create a `.env` in the repo root with the credentials your task needs (Supabase, Postgres, Kalshi API). None
-are committed.
+Copy `.env.example` to `.env` and fill in what your task needs (Kalshi API keys for kalshi_ws / trading,
+optional Alpaca keys). None are committed.
 
 ## Running
 
-Run everything as a module from the repo root:
+Run everything as a module from the repo root (see `to_run.txt` for the full list):
 
 ```bash
-# scrape spot + prediction-market data into Supabase (or CSV in test mode)
-python -m data_gather.scrapers.run_all
+# the collector — writes local parquet to data/{table}/date=/hour=/
+DATA_SINK_MODE=parquet python -m data_gather.scrapers.run_all
 
-# pull collected tables from Supabase to data_gather/raw_data/*.csv
-python -m data_gather.postgres_extract        # or: python -m data_gather.supabase_extract
-
-# build the feature table
-python -m data_gather.filter
-
-# paper-trade against Kalshi (no real orders); drop --dry-run to trade live
-python -m trading.engine --dry-run
+# daily compaction of closed dates
+python -m data_gather.compact
 ```
 
-Model training lives in `models/*.ipynb`; artifacts are written to `trading/model_artifacts.npz`.
+Read collected data with `pl.scan_parquet('data/<table>/**/*.parquet')`.
 
-See `CLAUDE.md` for architecture, the data flow, and a verified assessment of model performance.
+The trading engine skeleton in `trading/` is not currently runnable — it awaits the new model layer.
+
+See `CLAUDE.md` for architecture, ops procedures, known data gaps, and the rebuild strategy.

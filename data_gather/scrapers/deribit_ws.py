@@ -23,11 +23,6 @@ from datetime import datetime, timezone
 import aiohttp
 
 from data_gather.scrapers.ws_base import StreamBuffer, WsScraper, run_scraper_main
-from data_gather.scrapers.deribit_vol import (
-    group_options_by_expiry,
-    parse_expiry_date,
-    parse_instrument_name,
-)
 
 WS_URL = "wss://www.deribit.com/ws/api/v2"
 REST_BASE = "https://www.deribit.com/api/v2"
@@ -56,6 +51,48 @@ TICKER_FIELDS = ["curr_time", "instrument_name", "exchange_ts_ms", "underlying_p
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# Instrument-name helpers inlined from the retired deribit_vol.py REST poller
+# (removed in the 2026-07-18 cleanup).
+
+def parse_instrument_name(instrument_name):
+    """Parse Deribit instrument name: BTC-25DEC26-100000-C"""
+    try:
+        parts = instrument_name.split('-')
+        if len(parts) >= 4:
+            currency = parts[0]
+            expiry = parts[1]
+            strike = float(parts[2])
+            option_type = parts[3]  # C or P
+            return {'currency': currency, 'expiry': expiry, 'strike': strike, 'type': option_type}
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
+def parse_expiry_date(expiry_str):
+    """Parse Deribit expiry format (e.g., '27MAR26') into a datetime for proper sorting."""
+    try:
+        # Format: DDMMMYY (e.g., 27MAR26)
+        return datetime.strptime(expiry_str, '%d%b%y')
+    except ValueError:
+        return None
+
+
+def group_options_by_expiry(option_summaries):
+    by_expiry = {}
+    for opt in option_summaries:
+        parsed = parse_instrument_name(opt.get('instrument_name', ''))
+        if not parsed:
+            continue
+
+        expiry = parsed['expiry']
+        if expiry not in by_expiry:
+            by_expiry[expiry] = []
+        by_expiry[expiry].append(opt)
+
+    return by_expiry
 
 
 class DeribitWsScraper(WsScraper):

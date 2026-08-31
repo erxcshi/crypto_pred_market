@@ -16,9 +16,6 @@ read collected data:
 single scrapers (debugging):
 python -m data_gather.scrapers.polymarket_ws     # etc.
 
-LEGACY (Supabase-era pipeline):
-python -m data_gather.postgres_extract    # pull old tables from supabase
-python -m data_gather.filter              # build feature table from raw csvs
-
-trading engine (paper mode):
+trading engine (paper mode — currently non-runnable: model/feature layer was
+removed 2026-07-18 for the from-scratch rebuild, see CLAUDE.md):
 python -m trading.engine --dry-run

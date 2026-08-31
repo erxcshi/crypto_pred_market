@@ -27,14 +27,10 @@ from datetime import datetime, timezone
 import aiohttp
 
 from data_gather.scrapers.ws_base import StreamBuffer, WsScraper, run_scraper_main
-from data_gather.scrapers.polymarket import (
-    GAMMA_BASE,
-    TIME_HORIZON,
-    get_gamma_event,
-    get_window_starting_price,
-    extract_gamma_market,
-    time_horizon_seconds,
-)
+
+GAMMA_BASE = 'https://gamma-api.polymarket.com'
+TIME_HORIZON = 15
+time_horizon_seconds = TIME_HORIZON * 60
 
 WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 COINS = ["BTC", "ETH", "XRP", "SOL"]
@@ -54,6 +50,68 @@ MARKET_FIELDS = ["curr_time", "coin", "time_horizon_minutes", "interval_start_un
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# Gamma/Binance discovery helpers inlined from the retired polymarket.py REST
+# poller (removed in the 2026-07-18 cleanup).
+
+async def get_window_starting_price(session, coin, interval_start_unix):
+
+    # convert to ms because binance works with ms data
+    start_ms = interval_start_unix * 1000
+    end_ms = start_ms + (time_horizon_seconds * 1000) - 1
+
+    async with session.get(
+        'https://api.binance.us/api/v3/klines',
+        params={
+            'symbol': f'{coin}USDT',
+            'interval': f'{TIME_HORIZON}m',
+            'startTime': start_ms,
+            'endTime': end_ms,
+            'limit': 1,
+        },
+        timeout=aiohttp.ClientTimeout(total=5),
+    ) as resp:
+        resp.raise_for_status()
+
+        klines = await resp.json()
+        if not klines:
+            raise ValueError(f'no Binance kline found for {coin} at {interval_start_unix}')
+
+        kline = klines[0]
+        return float(kline[1])
+
+
+async def get_gamma_event(session, slug):
+    async with session.get(f'{GAMMA_BASE}/events/slug/{slug}', timeout=aiohttp.ClientTimeout(total=5)) as resp:
+        resp.raise_for_status()
+        return await resp.json()
+
+
+def extract_gamma_market(event):
+    markets = event.get('markets', [])
+    if not markets:
+        raise ValueError('no Polymarket markets found in Gamma event payload')
+
+    market = markets[0]
+
+    outcome_prices = json.loads(market.get('outcomePrices', '[]'))
+    clob_token_ids = json.loads(market.get('clobTokenIds', '[]'))
+
+    yes_token_id = clob_token_ids[0] if len(clob_token_ids) > 0 else None
+    no_token_id = clob_token_ids[1] if len(clob_token_ids) > 1 else None
+
+    return {
+        'end_date': event.get('endDate'),
+        'market_slug': market.get('slug'),
+        'condition_id': market.get('conditionId'),
+        'liquidity': market.get('liquidity'),
+        'volume': market.get('volume'),
+        'open_interest': market.get('openInterest'),
+        'outcome_prices': outcome_prices,
+        'yes_token_id': yes_token_id,
+        'no_token_id': no_token_id,
+    }
 
 
 def _f(x):

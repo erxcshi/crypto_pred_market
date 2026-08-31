@@ -21,5 +21,8 @@ data_gather/final_data/*.csv
 
 # Parquet collector output (runtime-generated, can be huge)
 data/
-collector*.log
-collector.err.log
+# collector logs incl. rotated *.log.1 / *.err.log.1 (can be >1GB — never commit)
+collector*.log*
+data_samples/
+
+.CLAUDE.md

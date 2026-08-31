@@ -3,7 +3,8 @@
     "allow": [
       "Bash(PYTHONIOENCODING=utf-8 python -)",
       "WebSearch",
-      "WebFetch(domain:docs.kalshi.com)"
+      "WebFetch(domain:docs.kalshi.com)",
+      "PowerShell(Get-Process -Id 12344 -ErrorAction SilentlyContinue | Select-Object Id,ProcessName | Format-List; Stop-Process -Id 12344 -Force -Confirm:$false -ErrorAction SilentlyContinue; Start-Sleep -Seconds 3; $left = Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | Where-Object { $_.CommandLine -match 'data_gather' }; if \\($left\\) { $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -Confirm:$false -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 2 }; $still = Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | Where-Object { $_.CommandLine -match 'data_gather' }; if \\($still\\) { \"STILL RUNNING: \" + \\($still.ProcessId -join ','\\) } else { \"all collector processes stopped\" })"
     ]
   }
 }
